@@ -11,7 +11,7 @@
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-blue)](https://www.apple.com/macos/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-[下载最新版本](https://github.com/TomoMakes/Yufanyi/releases/latest) · [使用说明](guide/使用说明.txt)
+[下载最新版本](https://github.com/TomoMakes/Yufanyi/releases) · [使用说明](guide/使用说明.txt)
 
 </div>
 
@@ -34,7 +34,7 @@ LunaTranslator 的预翻译库收录了许多视觉小说的整句译文，但 L
 
 ## 安装与使用
 
-1. 在 [Releases](https://github.com/TomoMakes/Yufanyi/releases/latest) 下载 DMG，将「预翻译 for Mac.app」拖入「应用程序」。
+1. 在 [Releases](https://github.com/TomoMakes/Yufanyi/releases) 下载 DMG，将「预翻译 for Mac.app」拖入「应用程序」。
 2. 本软件暂未进行 Apple 付费签名。首次打开如被系统拦截，请前往「系统设置 → 隐私与安全性」，点击「仍要打开」。
 3. 按提示授予「录屏与系统录音」权限，然后重新打开软件。
 4. 在设置的「高级」页面载入预翻译库，再从菜单栏选择「实时翻译」，框选游戏中的台词区域。
