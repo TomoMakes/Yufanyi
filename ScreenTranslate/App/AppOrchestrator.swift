@@ -54,7 +54,7 @@ final class AppOrchestrator {
     /// Sparkle 자동 업데이트 컨트롤러
     @ObservationIgnored
     let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
+        startingUpdater: false,  // Luna 版：更新源是原版，不能启用，否则会被更新回原版
         updaterDelegate: nil,
         userDriverDelegate: nil
     )
@@ -93,35 +93,8 @@ final class AppOrchestrator {
         FontManager.shared.loadCatalog()
         FontManager.shared.scanInstalledFonts()
 
-        KeyboardShortcuts.onKeyUp(for: .translate) { [weak self] in
-            Task { @MainActor in
-                self?.startTranslation()
-            }
-        }
-
-        // 드래그 번역: 단축키 핸들러는 앱 생명주기 동안 한 번만 등록한다 (C3-a).
-        // KeyboardShortcuts.onKeyUp은 핸들러를 배열에 append하므로 재등록하면 누적된다.
-        // 모드 확인은 콜백 안에서 하고, updateDragTranslateMode는 enable/disable만 한다.
-        KeyboardShortcuts.onKeyUp(for: .dragTranslate) { [weak self] in
-            Task { @MainActor in
-                guard AppSettings.shared.dragTranslateMode != "doubleCopy" else { return }
-                self?.startDragTranslation()
-            }
-        }
-        if AppSettings.shared.dragTranslateMode == "doubleCopy" {
-            KeyboardShortcuts.disable(.dragTranslate)
-        }
-        installDoubleCopyMonitor()  // 항상 설치, 콜백에서 모드 확인
-        // 권한 없이 설치된 모니터는 이벤트를 받지 못한다 — doubleCopy 설정 상태로 켜졌으면 권한 획득을 기다렸다 재설치 (M3)
-        if AppSettings.shared.dragTranslateMode == "doubleCopy", !TextGrabber.isAccessibilityTrusted {
-            reinstallDoubleCopyMonitorWhenTrusted()
-        }
-
-        KeyboardShortcuts.onKeyUp(for: .quickTranslate) { [weak self] in
-            Task { @MainActor in
-                self?.toggleQuickTranslate()
-            }
-        }
+        // Luna 版：截图翻译、拖选翻译、快速翻译已删，不注册它们的快捷键和 ⌘C+C 监听
+        KeyboardShortcuts.disable(.translate, .dragTranslate, .quickTranslate)
 
         // 실시간 번역(베타): 핸들러는 한 번만 등록하고 베타 여부는 콜백에서 확인한다
         KeyboardShortcuts.onKeyUp(for: .liveTranslate) { [weak self] in
@@ -597,7 +570,7 @@ final class AppOrchestrator {
         guard !AppSettings.shared.hasCompletedOnboarding else { return }
 
         let window = makeAuxiliaryWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 420))
-        window.title = "ScreenTranslate"
+        window.title = "预翻译 for Mac"
         window.center()
 
         // onComplete: finishOnboarding()이 hasCompletedOnboarding 설정을 담당하고,
@@ -638,7 +611,18 @@ final class AppOrchestrator {
                 PermissionGuard.requestScreenRecordingPermission()
                 return
             }
-            let missing = await missingLiveLanguagePacks()
+            let missing: [String]
+            if AppSettings.shared.useLunaPretranslation {
+                guard !AppSettings.shared.lunaDatabasePath.isEmpty,
+                      FileManager.default.fileExists(atPath: AppSettings.shared.lunaDatabasePath) else {
+                    isSelectingRegion = false
+                    showFailurePopup("请先在设置 → 高级 → Luna 预翻译中选择 .sqlite 文件")
+                    return
+                }
+                missing = []
+            } else {
+                missing = await missingLiveLanguagePacks()
+            }
             currentScreen = NSScreen.underMouse
             guard missing.isEmpty else {
                 isSelectingRegion = false
@@ -691,9 +675,14 @@ final class AppOrchestrator {
                 frameSource: liveCapturer,
                 // 원문 언어에 따라 인식 수준이 달라지므로 세션마다 만든다
                 ocr: VisionOCRProvider.liveTranslation(sourceCode: AppSettings.shared.sourceLanguageCode),
-                translator: liveTranslator,
-                isTranslatorBusy: { TranslationBridge.shared.isTranslating },
-                checkReadiness: { text, target in await LiveTranslatePreflight.readiness(for: text, to: target) }
+                translator: AppSettings.shared.useLunaPretranslation
+                    ? LunaPretranslationProvider(path: AppSettings.shared.lunaDatabasePath)
+                    : liveTranslator,
+                isTranslatorBusy: { !AppSettings.shared.useLunaPretranslation && TranslationBridge.shared.isTranslating },
+                checkReadiness: { text, target in
+                    if AppSettings.shared.useLunaPretranslation { return .ready }
+                    return await LiveTranslatePreflight.readiness(for: text, to: target)
+                }
             ),
             region: { [weak regionWindow] in
                 regionWindow.map { LiveRegion(rect: $0.region, displayID: displayID, scale: scale) }
@@ -704,6 +693,7 @@ final class AppOrchestrator {
         session.onDisplayChange = { [weak self] display in self?.refreshLiveSubtitleBar(display) }
         session.onStop = { [weak self] reason in self?.liveSessionDidStop(reason) }
         regionWindow.onStop = { [weak self] in self?.stopLiveTranslation(.user) }
+        regionWindow.onShowFullText = { [weak bar] in bar?.showFullText() }
         regionWindow.onRegionChange = { [weak self] in
             self?.refreshLiveSubtitleBar(self?.liveSession?.display ?? .hidden)
         }

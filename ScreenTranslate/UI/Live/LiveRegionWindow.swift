@@ -3,7 +3,7 @@ import AppKit
 /// 실시간 번역이 지켜보는 영역의 테두리·툴바·크기 손잡이.
 /// 테두리는 클릭을 통과시키고 툴바(이동·중지)와 손잡이(크기)만 마우스를 받는다. 모두 포커스를 빼앗지 않는다.
 final class LiveRegionWindow {
-    static let toolbarSize = CGSize(width: 196, height: 26)
+    static let toolbarSize = CGSize(width: 236, height: 26)
     private static let handleSize: CGFloat = 16
 
     /// 화면 로컬·좌상단 원점·포인트 (오버레이·캡처와 같은 좌표)
@@ -11,11 +11,15 @@ final class LiveRegionWindow {
     let screen: NSScreen
     var onStop: (() -> Void)?
     var onRegionChange: (() -> Void)?
+    var onShowFullText: (() -> Void)?
 
     private let outline: NSPanel
     private let toolbar: NSPanel
     private let handle: NSPanel
     private var gestureStartRegion: CGRect = .zero
+    private var hoverTask: Task<Void, Never>?
+    private var dragging = false
+    private var lastHover = Date.distantPast
 
     init(region: CGRect, screen: NSScreen) {
         self.region = region
@@ -30,8 +34,17 @@ final class LiveRegionWindow {
         let toolbarView = RegionControlView(kind: .move)
         toolbarView.toolTip = L10n.liveToolbarLabel
         toolbarView.onBegin = { [weak self] in self?.beginGesture() }
+        toolbarView.onEnd = { [weak self] in self?.dragging = false }
         toolbarView.onDrag = { [weak self] delta in self?.move(by: delta) }
         toolbarView.onStop = { [weak self] in self?.onStop?() }
+        toolbarView.onShowFullText = { [weak self] in self?.onShowFullText?() }
+        let fullText = NSButton(image: NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: L10n.liveFullText)
+            ?? NSImage(), target: toolbarView, action: #selector(RegionControlView.showFullText))
+        fullText.isBordered = false
+        fullText.contentTintColor = .white
+        fullText.toolTip = L10n.liveFullText
+        fullText.frame = CGRect(x: Self.toolbarSize.width - 54, y: 3, width: 22, height: 20)
+        toolbarView.addSubview(fullText)
         let stop = NSButton(
             image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: L10n.stopLiveTranslation)
                 ?? NSImage(),
@@ -48,6 +61,7 @@ final class LiveRegionWindow {
         let handleView = RegionControlView(kind: .resize)
         handleView.toolTip = L10n.liveResizeHelp
         handleView.onBegin = { [weak self] in self?.beginGesture() }
+        handleView.onEnd = { [weak self] in self?.dragging = false }
         handleView.onDrag = { [weak self] delta in self?.resize(by: delta) }
         handle.contentView = handleView
 
@@ -58,10 +72,19 @@ final class LiveRegionWindow {
     var regionFrame: CGRect { LiveLayout.globalFrame(of: region, screenFrame: screen.frame) }
 
     func show() {
-        [outline, toolbar, handle].forEach { $0.orderFrontRegardless() }
+        outline.orderFrontRegardless()
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.updateControls()
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            }
+        }
     }
 
     func close() {
+        hoverTask?.cancel()
+        hoverTask = nil
         [outline, toolbar, handle].forEach { $0.close() }
     }
 
@@ -70,17 +93,27 @@ final class LiveRegionWindow {
         let frame = regionFrame
         outline.setFrame(frame.insetBy(dx: -3, dy: -3), display: true)  // 테두리는 캡처 영역 바깥에
         let visible = screen.visibleFrame
-        let toolbarOrigin = CGPoint(
-            x: min(max(frame.minX, visible.minX), visible.maxX - Self.toolbarSize.width),
-            y: min(frame.maxY + 4, visible.maxY - Self.toolbarSize.height)
-        )
-        toolbar.setFrame(CGRect(origin: toolbarOrigin, size: Self.toolbarSize), display: true)
+        toolbar.setFrame(LiveLayout.toolbarFrame(region: frame, size: Self.toolbarSize, visible: visible), display: true)
         handle.setFrame(CGRect(x: frame.maxX - Self.handleSize / 2, y: frame.minY - Self.handleSize / 2,
                                width: Self.handleSize, height: Self.handleSize), display: true)
     }
 
     private func beginGesture() {
+        dragging = true
         gestureStartRegion = region
+    }
+
+    private func updateControls() {
+        let mouse = NSEvent.mouseLocation
+        let hovering = LiveLayout.nearBorder(mouse, region: regionFrame)
+            || (toolbar.isVisible && toolbar.frame.insetBy(dx: -8, dy: -8).contains(mouse))
+            || (handle.isVisible && handle.frame.insetBy(dx: -8, dy: -8).contains(mouse))
+        if hovering || dragging { lastHover = Date() }
+        let visible = dragging || Date().timeIntervalSince(lastHover) < 0.5
+        for panel in [toolbar, handle] {
+            if visible && !panel.isVisible { panel.orderFrontRegardless() }
+            else if !visible && panel.isVisible { panel.orderOut(nil) }
+        }
     }
 
     private func move(by delta: CGSize) {
@@ -129,8 +162,10 @@ private final class RegionControlView: NSView {
     enum Kind { case move, resize }
     let kind: Kind
     var onBegin: (() -> Void)?
+    var onEnd: (() -> Void)?
     var onDrag: ((CGSize) -> Void)?
     var onStop: (() -> Void)?
+    var onShowFullText: (() -> Void)?
     private var startPoint: NSPoint = .zero
 
     init(kind: Kind) {
@@ -149,6 +184,10 @@ private final class RegionControlView: NSView {
     @objc func stopPressed() {
         onStop?()
     }
+
+    @objc func showFullText() { onShowFullText?() }
+
+    override func mouseUp(with event: NSEvent) { onEnd?() }
 
     override func mouseDown(with event: NSEvent) {
         startPoint = NSEvent.mouseLocation

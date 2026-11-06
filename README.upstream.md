@@ -1,0 +1,175 @@
+<div align="center">
+
+<img src="https://screentranslate.filient.ai/assets/logo.png" alt="ScreenTranslate" width="128" height="128">
+
+# ScreenTranslate
+
+**Translate any text on your Mac screen — capture or select.**
+
+Screen capture with OCR, or select text and translate directly. On-device by default, with optional cloud engines.
+
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-blue)](https://www.apple.com/macos/)
+[![Swift 6](https://img.shields.io/badge/Swift-6-orange)](https://swift.org)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](#license)
+
+<a href="https://www.producthunt.com/products/screentranslate"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1089066&theme=neutral&t=1772670917164" alt="Product Hunt" width="200"></a>
+
+[Download](https://github.com/hcmhcs/screenTranslate/releases/latest) · [Website](https://screentranslate.filient.ai/?utm_source=github&utm_medium=readme&utm_campaign=screentranslate) · [Privacy Policy](https://screentranslate.filient.ai/privacy?utm_source=github&utm_medium=readme&utm_campaign=screentranslate)
+
+<table>
+<tr>
+<td align="center"><img src="https://screentranslate.filient.ai/assets/area-selection.png" alt="Drag to select" width="400"></td>
+<td align="center"><b>→</b></td>
+<td align="center"><img src="https://screentranslate.filient.ai/assets/translation-result-2.png" alt="Translation result" width="400"></td>
+</tr>
+<tr>
+<td align="center"><b>Drag to select</b></td>
+<td></td>
+<td align="center"><b>Translation result</b></td>
+</tr>
+</table>
+
+</div>
+
+---
+
+## How It Works
+
+<div align="center">
+<img src="https://screentranslate.filient.ai/assets/screenTranslate-gif-en.gif" alt="ScreenTranslate Demo" width="600">
+</div>
+
+### Screen Capture Translation
+
+1. **Press shortcut** — Hit `Cmd + E` (customizable) to enter selection mode
+2. **Drag to select** — Draw a rectangle around the text you want to translate
+3. **Read translation** — Translation appears in a popup near your selection
+
+### Text Selection Translation
+
+1. **Select text** — Highlight text in any app
+2. **Press shortcut** — Hit `Cmd + Option + Z` (customizable) to translate
+3. **Read translation** — Translation appears instantly — no OCR needed
+
+### Quick Translate
+
+<div align="center">
+<img src="https://screentranslate.filient.ai/assets/quick-translation.png" alt="Quick Translate" width="400">
+</div>
+
+1. **Press shortcut** — Hit `Cmd + Shift + E` (customizable) to open the mini translation panel
+2. **Type text** — Enter the text you want to translate
+3. **Press Enter** — Translation appears below. Use `Shift + Enter` for new lines
+
+No copy-paste, no browser tabs, no context switching.
+
+### Live Translate (Beta)
+
+For subtitles burned into videos, games, or streams — text you can't select.
+
+1. **Turn it on** — Settings → Advanced → Beta Features → Live Translate
+2. **Pick the area** — Choose **Live Translate (Beta)** from the menu bar (or set your own shortcut) and drag over the subtitles
+3. **Read along** — Translations appear in a bar next to the area and follow the subtitles as they change. Drag the **LIVE** bar to move the area, drag its corner to resize it, and click ✕ to stop
+
+> **Beta** — Uses Apple Translation only (on-device, no API charges). Protected videos such as Netflix can't be captured. It keeps capturing while running, so it uses more battery. Found a problem? [Open an issue](https://github.com/hcmhcs/screenTranslate/issues).
+
+## Features
+
+- **Free & Open Source** — No subscription, no ads, no hidden costs. Licensed under GPL-3.0
+- **Completely Private** — On-device by default. No servers, no tracking, no personal data — only anonymous usage statistics ([privacy policy](https://screentranslate.filient.ai/privacy?utm_source=github&utm_medium=readme&utm_campaign=screentranslate))
+- **Instant Translation** — One shortcut triggers area selection, OCR, and translation in a single motion
+- **Text Selection Translation** — Select text in any app and translate directly — no OCR needed. Supports even more languages with cloud engines
+- **Quick Translate** — Type and translate instantly with a minimal floating panel
+- **Live Translate (Beta)** — Keeps translating an area you choose, like subtitles burned into a video
+- **20 Languages** — Auto-detect source language supported. Full list below
+- **Works Offline** — Download language packs once, translate anywhere without internet
+- **Optional Cloud Engines (BYOK)** — Already works without any API key. Optionally connect DeepL, Google Cloud, or Azure for more languages
+- **Auto Copy** — Translation results are copied to clipboard by default (can be disabled in Settings)
+- **Translation History** — Every translation is saved. Search and copy previous results anytime
+- **Menu Bar App** — Lightweight, always available, never in the way
+
+### Supported Languages
+
+| | | | |
+|---|---|---|---|
+| Korean | English | Japanese | Chinese (Simplified) |
+| Chinese (Traditional) | French | German | Spanish |
+| Portuguese | Italian | Russian | Arabic |
+| Dutch | Hindi | Indonesian | Polish |
+| Thai | Turkish | Ukrainian | Vietnamese |
+
+All powered by Apple Translation — on-device and offline capable.
+Connect your own API key (DeepL, Google, Azure) for additional languages.
+
+## Requirements
+
+- macOS 15 Sequoia or later
+- Apple Silicon or Intel
+
+## Installation
+
+### Download DMG
+
+Download the latest version from the [website](https://screentranslate.filient.ai/).
+
+### Homebrew
+
+```bash
+brew tap hcmhcs/tap
+brew install --cask screentranslate
+```
+
+> We're aiming to get listed on the official Homebrew Cask — if you find this useful, a ⭐ on GitHub would really help!
+
+### Build from Source
+
+```bash
+git clone https://github.com/hcmhcs/screenTranslate.git
+cd screenTranslate
+open ScreenTranslate.xcodeproj
+```
+
+Build and run with Xcode 26+.
+
+## Uninstall
+
+To remove ScreenTranslate completely — app, settings, API keys, history, fonts, and permission grants — see **[UNINSTALL.md](UNINSTALL.md)** (English / 한국어).
+
+## Getting Started
+
+1. Launch ScreenTranslate — it appears in your **menu bar**
+2. Grant **Screen Recording** permission when prompted (System Settings → Privacy & Security)
+3. Grant **Accessibility** permission for text selection translation (System Settings → Privacy & Security)
+4. Press `Cmd + E` and drag over any text on screen — or select text and press `Cmd + Option + Z` — or press `Cmd + Shift + E` to type and translate
+5. The translation popup appears instantly
+
+### Changing Languages
+
+Open Settings from the menu bar icon to:
+- Set source language (or leave as Auto-detect)
+- Set target language
+- Download language packs for offline use
+- Customize the keyboard shortcut
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| UI | SwiftUI + AppKit |
+| OCR | Apple Vision |
+| Translation | Apple Translation (on-device), DeepL, Google, Azure |
+| Data | SwiftData |
+| Updates | Sparkle |
+| Architecture | @Observable, MainActor isolation |
+
+## Contributors
+
+Thanks to everyone who has helped make ScreenTranslate better:
+
+- [@sickerin](https://github.com/sickerin) — original idea and prototype for Live Translate ([#4](https://github.com/hcmhcs/screenTranslate/pull/4))
+
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.

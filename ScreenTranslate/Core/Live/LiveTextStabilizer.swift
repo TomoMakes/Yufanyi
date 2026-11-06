@@ -18,15 +18,22 @@ nonisolated struct LiveTextStabilizer {
         self.requiredRepeats = max(1, requiredRepeats)
     }
 
-    mutating func ingest(_ recognized: String) -> Event? {
-        let text = Self.normalize(recognized)
+    /// `acceptImmediately`: the caller already trusts this frame (Luna: a complete exact
+    /// record), so one reading is enough. The same text later is still not re-emitted.
+    mutating func ingest(_ recognized: String, preservingLineBreaks: Bool = false,
+                         acceptImmediately: Bool = false) -> Event? {
+        let text = preservingLineBreaks
+            ? recognized.components(separatedBy: "\n").map(Self.normalize).joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            : Self.normalize(recognized)
         if text == candidate {
             repeats += 1
         } else {
             candidate = text
             repeats = 1
         }
-        guard repeats >= requiredRepeats, text != lastEmitted else { return nil }
+        guard repeats >= (acceptImmediately && !text.isEmpty ? 1 : requiredRepeats),
+              text != lastEmitted else { return nil }
         if text.isEmpty, lastEmitted == nil {
             // 처음부터 빈 화면이면 지울 것이 없다
             lastEmitted = ""

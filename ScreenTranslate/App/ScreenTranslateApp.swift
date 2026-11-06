@@ -21,7 +21,7 @@ struct ScreenTranslateApp: App {
 
     var body: some Scene {
         // 같은 값 되쓰기를 걸러야 한다 — 그대로 연결하면 CPU 100% 루프 (Binding+WritingOnlyChanges 참고)
-        MenuBarExtra("ScreenTranslate", image: "MenuBarIcon", isInserted: $showMenuBarIcon.writingOnlyChanges()) {
+        MenuBarExtra("预翻译 for Mac", image: "MenuBarIcon", isInserted: $showMenuBarIcon.writingOnlyChanges()) {
             MenuBarView()
         }
         .menuBarExtraStyle(.menu)
@@ -44,10 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // info는 디스크에 남지 않아 로그인 뒤 log show로 볼 수 없으므로 notice로 남긴다
         logger.notice("launch kind=\(String(describing: launchKind), privacy: .public) menuBarIconVisible=\(AppSettings.shared.showMenuBarIcon, privacy: .public)")
 
-        // TelemetryDeck 초기화
-        let config = TelemetryDeck.Config(appID: "D40DAE14-17FE-4D5E-86B9-294CA7E45B7F")
+        // 预翻译 for Mac：不收集使用统计。原版的统计 appID 属于原作者，已移除。
+        // 以「关闭统计」初始化：SDK 的所有上报都先检查 analyticsDisabled，开启后一条也不会发送。
+        // （不初始化反而不安全：SDK 会用空配置继续处理信号。）
+        let config = TelemetryDeck.Config(appID: "00000000-0000-0000-0000-000000000000")
+        config.analyticsDisabled = true
         TelemetryDeck.initialize(config: config)
-        TelemetryDeck.signal("appLaunched")
 
         // 키보드 단축키 등록 — NSApplication 초기화 완료 후 안전하게 수행
         AppOrchestrator.shared.setup()

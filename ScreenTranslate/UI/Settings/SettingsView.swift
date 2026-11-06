@@ -1,3 +1,4 @@
+import AppKit
 import KeyboardShortcuts
 import ServiceManagement
 import SwiftUI
@@ -171,50 +172,6 @@ struct SettingsView: View {
             Section(L10n.translationSection) {
                 HStack(spacing: 10) {
                     HStack(spacing: 4) {
-                        Text(L10n.sourceLanguageLabel)
-                            .foregroundStyle(.secondary)
-                        Picker(L10n.sourceLanguageLabel, selection: $settings.sourceLanguageCode) {
-                            Text(L10n.autoDetect).tag("auto")
-                            Divider()
-                            ForEach(AppSettings.supportedLanguages, id: \.code) { lang in
-                                Label {
-                                    Text(lang.name)
-                                } icon: {
-                                    languageStatusIcon(for: lang.code)
-                                }
-                                .tag(lang.code)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .onChange(of: settings.sourceLanguageCode) { _, newValue in
-                            if newValue != "auto" {
-                                let status = packManager.languageStatuses[newValue]
-                                if status == .available {
-                                    pendingDownloadCode = newValue
-                                    showDownloadAlert = true
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .help(L10n.sourceLanguageHelp)
-
-                    Button {
-                        let oldSource = settings.sourceLanguageCode
-                        let oldTarget = settings.targetLanguageCode
-                        settings.sourceLanguageCode = oldTarget
-                        settings.targetLanguageCode = oldSource
-                    } label: {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .font(.caption)
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .disabled(settings.sourceLanguageCode == "auto")
-                    .help(L10n.swapLanguages)
-
-                    HStack(spacing: 4) {
                         Text(L10n.targetLanguageLabel)
                             .foregroundStyle(.secondary)
                         Picker(L10n.targetLanguageLabel, selection: $settings.targetLanguageCode) {
@@ -243,64 +200,13 @@ struct SettingsView: View {
             }
 
             Section(L10n.shortcutSection) {
-                KeyboardShortcuts.Recorder(L10n.translationShortcut, name: .translate)
-                    .help(L10n.shortcutHelp)
-
-                // 드래그 번역: 커스텀 단축키 또는 ⌘C+C 택 1
-                HStack {
-                    Text(L10n.dragTranslateShortcut)
-                    Spacer()
-
-                    // 커스텀 단축키 옵션
-                    KeyboardShortcuts.Recorder("", name: .dragTranslate)
-                        .opacity(settings.dragTranslateMode == "custom" ? 1.0 : 0.4)
-                        .disabled(settings.dragTranslateMode != "custom")
-                        .overlay {
-                            // .disabled가 onTapGesture도 차단하므로,
-                            // 비활성 상태에서 투명 overlay로 탭을 캐치하여 모드 전환
-                            if settings.dragTranslateMode != "custom" {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        settings.dragTranslateMode = "custom"
-                                        AppOrchestrator.shared.updateDragTranslateMode()
-                                    }
-                            }
-                        }
-
-                    // ⌘C+C 옵션
-                    Text(L10n.doubleCopyShortcut)
-                        .font(.system(.body, design: .rounded))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(settings.dragTranslateMode == "doubleCopy"
-                                    ? Color.accentColor.opacity(0.2)
-                                    : Color.secondary.opacity(0.1))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(settings.dragTranslateMode == "doubleCopy"
-                                    ? Color.accentColor : Color.clear, lineWidth: 1)
-                        )
-                        .foregroundStyle(settings.dragTranslateMode == "doubleCopy"
-                            ? .primary : .secondary)
-                        .onTapGesture {
-                            settings.dragTranslateMode = "doubleCopy"
-                            AppOrchestrator.shared.updateDragTranslateMode()
-                        }
-                }
-                .help(L10n.doubleCopyHelp)
-
-                KeyboardShortcuts.Recorder(L10n.quickTranslateShortcut, name: .quickTranslate)
-                    .help(L10n.quickTranslateShortcutHelp)
+                KeyboardShortcuts.Recorder(L10n.liveTranslateShortcut, name: .liveTranslate)
             }
 
             Section(L10n.appSection) {
                 Picker(L10n.appLanguageLabel, selection: $settings.appLanguage) {
+                    Text("简体中文").tag("zh-Hans")
                     Text("English").tag("en")
-                    Text("한국어").tag("ko")
                 }
                 .pickerStyle(.menu)
                 .help(L10n.appLanguageHelp)
@@ -343,16 +249,8 @@ struct SettingsView: View {
                     }
                 }
 
-                Button(L10n.checkForUpdates) {
-                    AppOrchestrator.shared.checkForUpdates()
-                }
-                .disabled(!AppOrchestrator.shared.canCheckForUpdates)
-
                 // 메뉴바 메뉴에만 있던 항목 — 아이콘을 숨겨도 여기서 닿을 수 있어야 한다
                 HStack {
-                    Button(L10n.openHistory) {
-                        AppOrchestrator.shared.showHistory()
-                    }
                     Button(L10n.aboutApp) {
                         AppOrchestrator.shared.showAbout()
                     }
@@ -371,123 +269,28 @@ struct SettingsView: View {
 
     private var advancedTab: some View {
         Form {
-            Section(L10n.engineSection) {
-                Picker(L10n.ocrEngine, selection: $settings.ocrProviderName) {
-                    Text(L10n.ocrEngineName).tag("Apple Vision")
+            Section("Luna 预翻译 · 实时字幕") {
+                Toggle("使用 Luna SQLite 译文库（不用 AI 机翻）", isOn: $settings.useLunaPretranslation)
+                HStack {
+                    Text(settings.lunaDatabasePath.isEmpty ? "未选择数据库" : URL(fileURLWithPath: settings.lunaDatabasePath).lastPathComponent)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("选择 .sqlite…") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = true
+                        panel.canChooseDirectories = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "选择 LunaTranslator 的预翻译 SQLite 数据库"
+                        if panel.runModal() == .OK, let url = panel.url {
+                            settings.lunaDatabasePath = url.path
+                        }
+                    }
                 }
-                .pickerStyle(.menu)
-                .disabled(true)
-                .help(L10n.ocrEngineHelp)
-
-                Picker(L10n.translationEngine, selection: $settings.translationProviderName) {
-                    Label {
-                        Text(L10n.translationEngineName)
-                    } icon: {
-                        engineStatusIcon(ready: true)
-                    }
-                    .tag(TranslationEngine.apple)
-
-                    Label {
-                        Text("DeepL")
-                    } icon: {
-                        engineStatusIcon(ready: settings.hasDeepLKey)
-                    }
-                    .tag(TranslationEngine.deepl)
-
-                    Label {
-                        Text("Google Cloud")
-                    } icon: {
-                        engineStatusIcon(ready: settings.hasGoogleKey)
-                    }
-                    .tag(TranslationEngine.google)
-
-                    Label {
-                        Text("Microsoft Azure")
-                    } icon: {
-                        engineStatusIcon(ready: settings.hasAzureKey)
-                    }
-                    .tag(TranslationEngine.azure)
-                }
-                .pickerStyle(.menu)
-                .onChange(of: settings.translationProviderName) { _, _ in
-                    AppOrchestrator.shared.updateTranslationProvider()
-                }
-
-                Text(engineDescription(for: settings.translationProviderName))
+                Text("只作用于实时翻译（测试版）。无匹配时显示原文，不会偷偷改用机器翻译。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                // DeepL API 키
-                if settings.translationProviderName == .deepl {
-                    APIKeySection(
-                        hasKey: settings.hasDeepLKey,
-                        savedLabel: nil,
-                        onSave: { key in
-                            do {
-                                try settings.saveDeepLKey(key)
-                                AppOrchestrator.shared.updateTranslationProvider()
-                            } catch {
-                                showAPIKeyError = true  // M20: 조용히 실패하면 사용자가 키를 반복 입력하게 된다
-                            }
-                        },
-                        onDelete: {
-                            settings.deleteDeepLKey()
-                            settings.translationProviderName = .apple
-                            AppOrchestrator.shared.updateTranslationProvider()
-                        }
-                    )
-                }
-
-                // Google Cloud API 키
-                if settings.translationProviderName == .google {
-                    APIKeySection(
-                        hasKey: settings.hasGoogleKey,
-                        savedLabel: nil,
-                        onSave: { key in
-                            do {
-                                try settings.saveGoogleKey(key)
-                                AppOrchestrator.shared.updateTranslationProvider()
-                            } catch {
-                                showAPIKeyError = true
-                            }
-                        },
-                        onDelete: {
-                            settings.deleteGoogleKey()
-                            settings.translationProviderName = .apple
-                            AppOrchestrator.shared.updateTranslationProvider()
-                        }
-                    )
-                }
-
-                // Microsoft Azure API 키 + 리전
-                if settings.translationProviderName == .azure {
-                    APIKeySection(
-                        hasKey: settings.hasAzureKey,
-                        savedLabel: settings.azureRegion.map { "\(L10n.apiKeySaved) (\($0))" },
-                        onSave: { key in
-                            do {
-                                try settings.saveAzureKey(key)
-                                let region = azureRegionInput.trimmingCharacters(in: .whitespaces)
-                                settings.azureRegion = region.isEmpty ? nil : region
-                                azureRegionInput = ""
-                                AppOrchestrator.shared.updateTranslationProvider()
-                            } catch {
-                                showAPIKeyError = true
-                            }
-                        },
-                        onDelete: {
-                            settings.deleteAzureKey()
-                            settings.azureRegion = nil
-                            azureRegionInput = ""
-                            settings.translationProviderName = .apple
-                            AppOrchestrator.shared.updateTranslationProvider()
-                        },
-                        regionInput: $azureRegionInput
-                    )
-                }
             }
-            .animation(.easeInOut(duration: 0.2), value: settings.translationProviderName)
-
             Section(L10n.popupSection) {
                 Stepper(value: $settings.popupFontSize, in: 11...20, step: 1) {
                     HStack {
@@ -499,153 +302,9 @@ struct SettingsView: View {
                 }
                 .help(L10n.popupFontSizeDesc)
 
-                // 폰트 선택 — 통합 Picker (시스템 + 번들 + 카탈로그 + 임포트)
-                HStack {
-                    Text(L10n.popupFont)
-                    Spacer()
 
-                    if isDownloadingFont {
-                        if fontManager.downloadProgress < 0 {
-                            ProgressView()
-                                .controlSize(.small)
-                                .padding(.trailing, 4)
-                        } else {
-                            ProgressView(value: fontManager.downloadProgress)
-                                .frame(width: 60)
-                                .padding(.trailing, 4)
-                        }
-                    }
-
-                    Picker(L10n.popupFont, selection: $settings.popupFontName) {
-                        Text(L10n.systemDefault).tag("system")
-                        Divider()
-
-                        // 번들 폰트
-                        ForEach(fontManager.installedFonts.filter { $0.source == .bundled }, id: \.id) { font in
-                            Text(font.displayName).tag(font.id)
-                        }
-
-                        // 카탈로그 폰트 (설치/미설치 통합)
-                        if !fontManager.catalogFonts.isEmpty {
-                            Divider()
-                            ForEach(fontManager.catalogFonts) { catalogFont in
-                                if fontManager.isInstalled(catalogFont) {
-                                    Label(catalogFont.name, systemImage: "checkmark.circle.fill")
-                                        .tag(catalogFont.id)
-                                } else {
-                                    Label {
-                                        Text("\(catalogFont.name) (\(formatBytes(catalogFont.sizeBytes)))")
-                                    } icon: {
-                                        Image(systemName: "arrow.down.circle")
-                                    }
-                                    .tag(catalogFont.id)
-                                }
-                            }
-                        }
-
-                        // 사용자 임포트 폰트
-                        let importedFonts = fontManager.installedFonts.filter { $0.source == .imported }
-                        if !importedFonts.isEmpty {
-                            Divider()
-                            ForEach(importedFonts, id: \.id) { font in
-                                Text(font.displayName).tag(font.id)
-                            }
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .frame(maxWidth: 200)
-                    .disabled(isDownloadingFont)
-                    .id(fontManager.installedFonts.map(\.id).joined(separator: ","))
-                    .onChange(of: settings.popupFontName) { oldValue, newValue in
-                        handleFontSelection(oldValue: oldValue, newValue: newValue)
-                    }
-
-                    Button(L10n.addFont) {
-                        importFontFromFile()
-                    }
-                    .controlSize(.small)
-                    .help(L10n.fontSelectMessage)
-                }
-                .help(L10n.popupFontDesc)
-
-                // 미리보기 (컴팩트)
-                Text(L10n.fontPreviewSample(for: settings.targetLanguageCode))
-                    .font(fontManager.swiftUIFont(size: settings.popupFontSize))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .accessibilityLabel(L10n.fontPreview)
-
-                // 삭제 버튼 (임포트/다운로드 폰트 선택 시)
-                if settings.popupFontName != "system",
-                   let selected = fontManager.installedFonts.first(where: { $0.id == settings.popupFontName }),
-                   selected.source != .bundled {
-                    Button(role: .destructive) {
-                        fontToRemove = selected.id
-                        showRemoveFontAlert = true
-                    } label: {
-                        Label(L10n.removeFont, systemImage: "trash")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
-                    .help(L10n.removeFont)
-                }
-
-                Toggle(isOn: $settings.matchPopupWidthToSelection) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.matchPopupWidth)
-                        Text(L10n.matchPopupWidthDesc)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help(L10n.matchPopupWidthHelp)
             }
 
-            Section(L10n.otherSection) {
-                Toggle(isOn: $settings.autoCopyToClipboard) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.autoCopyToClipboard)
-                        Text(L10n.autoCopyToClipboardDesc)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Toggle(isOn: $settings.ocrTextPreprocessing) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.ocrTextPreprocessing)
-                        Text(L10n.ocrTextPreprocessingDesc)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section(L10n.betaSection) {
-                Toggle(isOn: $settings.liveTranslateEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.liveTranslateFeature)
-                        Text(L10n.liveTranslateDesc)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .onChange(of: settings.liveTranslateEnabled) { _, isOn in
-                    AppOrchestrator.shared.updateLiveTranslateShortcut()
-                    if !isOn { AppOrchestrator.shared.stopLiveTranslation(.betaDisabled) }
-                }
-
-                if settings.liveTranslateEnabled {
-                    KeyboardShortcuts.Recorder(L10n.liveTranslateShortcut, name: .liveTranslate)
-                }
-            }
         }
         .formStyle(.grouped)
         .scrollDisabled(true)

@@ -13,7 +13,7 @@ final class AppSettings {
     var appLanguage: String {
         get {
             access(keyPath: \.appLanguage)
-            return UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? "en"
+            return UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? "zh-Hans"
         }
         set {
             withMutation(keyPath: \.appLanguage) {
@@ -28,7 +28,8 @@ final class AppSettings {
     var sourceLanguageCode: String {
         get {
             access(keyPath: \.sourceLanguageCode)
-            return UserDefaults.standard.string(forKey: "com.screentranslate.sourceLanguageCode") ?? "auto"
+            // Luna 版：预翻译库都是日语→中文，源语言跟着库走，固定日语
+            return "ja"
         }
         set {
             withMutation(keyPath: \.sourceLanguageCode) {
@@ -71,11 +72,37 @@ final class AppSettings {
         get {
             access(keyPath: \.translationProviderName)
             let stored = UserDefaults.standard.string(forKey: "com.screentranslate.translationProviderName")
-            return TranslationEngine(rawValue: stored ?? "") ?? .apple
+            _ = stored  // Luna 版：只保留 Apple 本地翻译
+            return .apple
         }
         set {
             withMutation(keyPath: \.translationProviderName) {
                 UserDefaults.standard.set(newValue.rawValue, forKey: "com.screentranslate.translationProviderName")
+            }
+        }
+    }
+
+    // MARK: - Luna pretranslation (Live Translate)
+    var useLunaPretranslation: Bool {
+        get {
+            access(keyPath: \.useLunaPretranslation)
+            return UserDefaults.standard.bool(forKey: "com.screentranslate.useLunaPretranslation")
+        }
+        set {
+            withMutation(keyPath: \.useLunaPretranslation) {
+                UserDefaults.standard.set(newValue, forKey: "com.screentranslate.useLunaPretranslation")
+            }
+        }
+    }
+
+    var lunaDatabasePath: String {
+        get {
+            access(keyPath: \.lunaDatabasePath)
+            return UserDefaults.standard.string(forKey: "com.screentranslate.lunaDatabasePath") ?? ""
+        }
+        set {
+            withMutation(keyPath: \.lunaDatabasePath) {
+                UserDefaults.standard.set(newValue, forKey: "com.screentranslate.lunaDatabasePath")
             }
         }
     }
@@ -271,7 +298,8 @@ final class AppSettings {
     var liveTranslateEnabled: Bool {
         get {
             access(keyPath: \.liveTranslateEnabled)
-            return UserDefaults.standard.bool(forKey: "com.screentranslate.liveTranslateEnabled")
+            // Luna 版：实时翻译是唯一功能，始终开启
+            return true
         }
         set {
             withMutation(keyPath: \.liveTranslateEnabled) {
@@ -333,7 +361,8 @@ final class AppSettings {
 
     // MARK: - Supported Languages
 
-    static let supportedLanguages: [(code: String, name: String)] = [
+    static var supportedLanguages: [(code: String, name: String)] {
+        let languages: [(code: String, name: String)] = [
         ("ko", "한국어"),
         ("en", "English"),
         ("ja", "日本語"),
@@ -354,5 +383,9 @@ final class AppSettings {
         ("tr", "Türkçe"),
         ("uk", "Українська"),
         ("vi", "Tiếng Việt"),
-    ]
+        ]
+        guard (UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? "zh-Hans") == "zh-Hans" else { return languages }
+        let locale = Locale(identifier: "zh-Hans")
+        return languages.map { (code: $0.code, name: locale.localizedString(forIdentifier: $0.code) ?? $0.name) }
+    }
 }

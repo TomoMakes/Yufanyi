@@ -8,6 +8,18 @@ nonisolated enum LiveLayout {
     static let screenMargin: CGFloat = 16
     static let minRegionSize = CGSize(width: 80, height: 24)
 
+    static func toolbarFrame(region: CGRect, size: CGSize, visible: CGRect) -> CGRect {
+        let x = min(max(region.maxX - size.width, visible.minX), visible.maxX - size.width)
+        let above = region.maxY + 4
+        let y = above + size.height <= visible.maxY ? above : max(visible.minY, region.minY - size.height - 4)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    static func nearBorder(_ point: CGPoint, region: CGRect) -> Bool {
+        region.insetBy(dx: -12, dy: -12).contains(point)
+            && !region.insetBy(dx: 12, dy: 12).contains(point)
+    }
+
     static func globalFrame(of rect: CGRect, screenFrame: CGRect) -> CGRect {
         CGRect(x: screenFrame.minX + rect.minX, y: screenFrame.maxY - rect.maxY,
                width: rect.width, height: rect.height)

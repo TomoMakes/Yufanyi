@@ -3,60 +3,10 @@ import SwiftUI
 
 struct MenuBarView: View {
     var body: some View {
-        Button(L10n.translate) {
-            AppOrchestrator.shared.startTranslation()
+        Button(AppOrchestrator.shared.isLiveTranslating ? L10n.stopLiveTranslation : L10n.liveTranslateMenu) {
+            AppOrchestrator.shared.toggleLiveTranslation()
         }
-        .globalKeyboardShortcut(.translate)
-
-        Button(L10n.dragTranslate) {
-            AppOrchestrator.shared.startDragTranslation()
-        }
-        .globalKeyboardShortcut(.dragTranslate)
-
-        Button(L10n.quickTranslate) {
-            AppOrchestrator.shared.toggleQuickTranslate()
-        }
-        .globalKeyboardShortcut(.quickTranslate)
-
-        if AppSettings.shared.liveTranslateEnabled {
-            Button(AppOrchestrator.shared.isLiveTranslating ? L10n.stopLiveTranslation : L10n.liveTranslateMenu) {
-                AppOrchestrator.shared.toggleLiveTranslation()
-            }
-            .globalKeyboardShortcut(.liveTranslate)
-        }
-
-        Divider()
-
-        // 최근 번역 서브메뉴
-        let records = AppOrchestrator.shared.historyManager.recentRecords
-        Menu(L10n.recentTranslations) {
-            if records.isEmpty {
-                Text(L10n.noHistory)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(records.prefix(5), id: \.id) { record in
-                    Button {
-                        AppOrchestrator.shared.showHistory(expandingRecord: record.id)
-                    } label: {
-                        Label {
-                            let text = record.translatedText ?? record.errorMessage ?? ""
-                            Text(text.count > 40 ? String(text.prefix(40)) + "…" : text)
-                                .lineLimit(1)
-                        } icon: {
-                            Image(systemName: record.isSuccess
-                                  ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button(L10n.showAll) {
-                    AppOrchestrator.shared.showHistory()
-                }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
-            }
-        }
+        .globalKeyboardShortcut(.liveTranslate)
 
         Divider()
 

@@ -2,16 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDisplayName</key>
+    <string>预翻译 for Mac</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>선택한 화면 영역의 텍스트를 인식하고 번역하기 위해 화면 접근 권한이 필요합니다.</string>
+    <string>预翻译 for Mac 需要访问屏幕，以识别并翻译你框选区域中的文字。</string>
 
     <!-- Sparkle 자동 업데이트 -->
     <key>SUFeedURL</key>
     <string>https://objectstorage.ap-chuncheon-1.oraclecloud.com/n/axo5sh9pv2lg/b/screentranslate-updates/o/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>6UNvbf5W5DWdM6oDjs02lEY1dib/yXb4BhYEY/FcJ0E=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <false/>
     <key>SUScheduledCheckInterval</key>
     <integer>86400</integer>
     <key>SUShowReleaseNotes</key>

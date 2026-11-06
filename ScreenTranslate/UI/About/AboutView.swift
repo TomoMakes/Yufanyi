@@ -9,7 +9,7 @@ struct AboutView: View {
                     .frame(width: 64, height: 64)
             }
 
-            Text("ScreenTranslate")
+            Text("预翻译 for Mac")
                 .font(.title2.bold())
 
             VStack(spacing: 4) {
@@ -19,23 +19,15 @@ struct AboutView: View {
 
                 Text(L10n.aboutCopyright)
                     .font(.caption)
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }
-
-            Button(L10n.checkForUpdates) {
-                AppOrchestrator.shared.checkForUpdates()
-            }
-            .disabled(!AppOrchestrator.shared.canCheckForUpdates)
 
             Divider()
 
             VStack(spacing: 6) {
-                HStack(spacing: 12) {
-                    Link(L10n.aboutWebsite, destination: URL(string: "https://screentranslate.filient.ai/?utm_source=app&utm_medium=about&utm_campaign=screentranslate")!)
-                    Link("GitHub", destination: URL(string: "https://github.com/hcmhcs/screenTranslate")!)
-                    Link(L10n.aboutPrivacyPolicy, destination: URL(string: "https://screentranslate.filient.ai/privacy?utm_source=app&utm_medium=about&utm_campaign=screentranslate")!)
-                }
-                Link("teams@filient.ai", destination: URL(string: "mailto:teams@filient.ai")!)
+                Text("基于 ScreenTranslate 修改，以 GPLv3 协议发布")
+                Link("ScreenTranslate 原项目（GitHub）", destination: URL(string: "https://github.com/hcmhcs/screenTranslate")!)
             }
             .font(.caption)
             .foregroundStyle(.secondary)

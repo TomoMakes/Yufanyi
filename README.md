@@ -1,175 +1,77 @@
 <div align="center">
 
-<img src="https://screentranslate.filient.ai/assets/logo.png" alt="ScreenTranslate" width="128" height="128">
+<img src="guide/icon.png" alt="预翻译 for Mac" width="128" height="128">
 
-# ScreenTranslate
+# 预翻译 for Mac
 
-**Translate any text on your Mac screen — capture or select.**
+**在 Mac 上为视觉小说显示预翻译字幕**
 
-Screen capture with OCR, or select text and translate directly. On-device by default, with optional cloud engines.
+框选游戏的对话区域，软件实时识别画面中的日文台词，并从 LunaTranslator 预翻译库中查找译文，以字幕形式显示。
 
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-blue)](https://www.apple.com/macos/)
-[![Swift 6](https://img.shields.io/badge/Swift-6-orange)](https://swift.org)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](#license)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-<a href="https://www.producthunt.com/products/screentranslate"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1089066&theme=neutral&t=1772670917164" alt="Product Hunt" width="200"></a>
-
-[Download](https://github.com/hcmhcs/screenTranslate/releases/latest) · [Website](https://screentranslate.filient.ai/?utm_source=github&utm_medium=readme&utm_campaign=screentranslate) · [Privacy Policy](https://screentranslate.filient.ai/privacy?utm_source=github&utm_medium=readme&utm_campaign=screentranslate)
-
-<table>
-<tr>
-<td align="center"><img src="https://screentranslate.filient.ai/assets/area-selection.png" alt="Drag to select" width="400"></td>
-<td align="center"><b>→</b></td>
-<td align="center"><img src="https://screentranslate.filient.ai/assets/translation-result-2.png" alt="Translation result" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Drag to select</b></td>
-<td></td>
-<td align="center"><b>Translation result</b></td>
-</tr>
-</table>
+[下载最新版本](https://github.com/TomoMakes/Yufanyi/releases/latest) · [使用说明](guide/使用说明.txt)
 
 </div>
 
 ---
 
-## How It Works
+## 简介
 
-<div align="center">
-<img src="https://screentranslate.filient.ai/assets/screenTranslate-gif-en.gif" alt="ScreenTranslate Demo" width="600">
-</div>
+LunaTranslator 的预翻译库收录了许多视觉小说的整句译文，但 LunaTranslator 只能在 Windows 上运行。本项目让 Mac 用户也能使用这些预翻译库：
 
-### Screen Capture Translation
+- 通过屏幕文字识别（OCR）读取框选区域内的台词，无需针对单个游戏编写读取程序；
+- 在预翻译库中查找对应译文，查不到时显示原文，不会用机器翻译替代；
+- 全程在本机运行，不上传截图或文字。
 
-1. **Press shortcut** — Hit `Cmd + E` (customizable) to enter selection mode
-2. **Drag to select** — Draw a rectangle around the text you want to translate
-3. **Read translation** — Translation appears in a popup near your selection
+目前为免费测试版，仅支持日文原文。
 
-### Text Selection Translation
+## 系统要求
 
-1. **Select text** — Highlight text in any app
-2. **Press shortcut** — Hit `Cmd + Option + Z` (customizable) to translate
-3. **Read translation** — Translation appears instantly — no OCR needed
+- macOS 15 或更高版本，Apple 芯片与 Intel 芯片均可使用
+- 与游戏对应的 LunaTranslator 预翻译库（`.sqlite`），需自行准备。本项目不提供、不托管任何预翻译数据。
 
-### Quick Translate
+## 安装与使用
 
-<div align="center">
-<img src="https://screentranslate.filient.ai/assets/quick-translation.png" alt="Quick Translate" width="400">
-</div>
+1. 在 [Releases](https://github.com/TomoMakes/Yufanyi/releases/latest) 下载 DMG，将「预翻译 for Mac.app」拖入「应用程序」。
+2. 本软件暂未进行 Apple 付费签名。首次打开如被系统拦截，请前往「系统设置 → 隐私与安全性」，点击「仍要打开」。
+3. 按提示授予「录屏与系统录音」权限，然后重新打开软件。
+4. 在设置的「高级」页面载入预翻译库，再从菜单栏选择「实时翻译」，框选游戏中的台词区域。
 
-1. **Press shortcut** — Hit `Cmd + Shift + E` (customizable) to open the mini translation panel
-2. **Type text** — Enter the text you want to translate
-3. **Press Enter** — Translation appears below. Use `Shift + Enter` for new lines
+框选时只框台词区域，不要框入角色名字框。完整步骤见 [使用说明](guide/使用说明.txt)。
 
-No copy-paste, no browser tabs, no context switching.
+> 每次更新版本后，请在「录屏与系统录音」中移除旧条目，为新版本重新授权。
 
-### Live Translate (Beta)
+## 与原项目的区别
 
-For subtitles burned into videos, games, or streams — text you can't select.
+本项目基于 [ScreenTranslate](https://github.com/hcmhcs/screenTranslate)（作者 hanchangmin）修改，主要改动：
 
-1. **Turn it on** — Settings → Advanced → Beta Features → Live Translate
-2. **Pick the area** — Choose **Live Translate (Beta)** from the menu bar (or set your own shortcut) and drag over the subtitles
-3. **Read along** — Translations appear in a bar next to the area and follow the subtitles as they change. Drag the **LIVE** bar to move the area, drag its corner to resize it, and click ✕ to stop
+- 新增 LunaTranslator 预翻译库（`.sqlite`）匹配，包括按段落和台词拆分匹配、OCR 候选读法回收、同行拼接等，并在多条记录冲突时判为未命中，避免显示错误译文；
+- 实时字幕改为本项目的主要功能，保留实时翻译、字幕字号与快捷键设置；
+- 移除截图弹窗翻译、拖选翻译、快速翻译、翻译历史、在线翻译引擎和自动更新等与预翻译场景无关的功能；
+- 关闭原版内置的使用统计（TelemetryDeck），本软件不收集任何使用数据；
+- 界面改为简体中文，应用名称、图标与包标识均已更换，可与原版共存。
 
-> **Beta** — Uses Apple Translation only (on-device, no API charges). Protected videos such as Netflix can't be captured. It keeps capturing while running, so it uses more battery. Found a problem? [Open an issue](https://github.com/hcmhcs/screenTranslate/issues).
+逐项修改可通过本仓库的提交记录查看。
 
-## Features
+## 从源码构建
 
-- **Free & Open Source** — No subscription, no ads, no hidden costs. Licensed under GPL-3.0
-- **Completely Private** — On-device by default. No servers, no tracking, no personal data — only anonymous usage statistics ([privacy policy](https://screentranslate.filient.ai/privacy?utm_source=github&utm_medium=readme&utm_campaign=screentranslate))
-- **Instant Translation** — One shortcut triggers area selection, OCR, and translation in a single motion
-- **Text Selection Translation** — Select text in any app and translate directly — no OCR needed. Supports even more languages with cloud engines
-- **Quick Translate** — Type and translate instantly with a minimal floating panel
-- **Live Translate (Beta)** — Keeps translating an area you choose, like subtitles burned into a video
-- **20 Languages** — Auto-detect source language supported. Full list below
-- **Works Offline** — Download language packs once, translate anywhere without internet
-- **Optional Cloud Engines (BYOK)** — Already works without any API key. Optionally connect DeepL, Google Cloud, or Azure for more languages
-- **Auto Copy** — Translation results are copied to clipboard by default (can be disabled in Settings)
-- **Translation History** — Every translation is saved. Search and copy previous results anytime
-- **Menu Bar App** — Lightweight, always available, never in the way
-
-### Supported Languages
-
-| | | | |
-|---|---|---|---|
-| Korean | English | Japanese | Chinese (Simplified) |
-| Chinese (Traditional) | French | German | Spanish |
-| Portuguese | Italian | Russian | Arabic |
-| Dutch | Hindi | Indonesian | Polish |
-| Thai | Turkish | Ukrainian | Vietnamese |
-
-All powered by Apple Translation — on-device and offline capable.
-Connect your own API key (DeepL, Google, Azure) for additional languages.
-
-## Requirements
-
-- macOS 15 Sequoia or later
-- Apple Silicon or Intel
-
-## Installation
-
-### Download DMG
-
-Download the latest version from the [website](https://screentranslate.filient.ai/).
-
-### Homebrew
+需要较新版本的 Xcode（已在 Xcode 27 上验证）。
 
 ```bash
-brew tap hcmhcs/tap
-brew install --cask screentranslate
+scripts/build-release.sh 0.1.0-beta
 ```
 
-> We're aiming to get listed on the official Homebrew Cask — if you find this useful, a ⭐ on GitHub would really help!
+生成的 DMG 位于 `build/` 目录。
 
-### Build from Source
+## 许可证
 
-```bash
-git clone https://github.com/hcmhcs/screenTranslate.git
-cd screenTranslate
-open ScreenTranslate.xcodeproj
-```
+本项目依照 [GNU General Public License v3.0](LICENSE) 发布。
 
-Build and run with Xcode 26+.
+- 原项目 ScreenTranslate © 2026 hanchangmin，以 GPLv3 发布。原项目说明保留在 [README.upstream.md](README.upstream.md)。
+- 修改部分 © 2026 TomoMakes。
 
-## Uninstall
+## 致谢
 
-To remove ScreenTranslate completely — app, settings, API keys, history, fonts, and permission grants — see **[UNINSTALL.md](UNINSTALL.md)** (English / 한국어).
-
-## Getting Started
-
-1. Launch ScreenTranslate — it appears in your **menu bar**
-2. Grant **Screen Recording** permission when prompted (System Settings → Privacy & Security)
-3. Grant **Accessibility** permission for text selection translation (System Settings → Privacy & Security)
-4. Press `Cmd + E` and drag over any text on screen — or select text and press `Cmd + Option + Z` — or press `Cmd + Shift + E` to type and translate
-5. The translation popup appears instantly
-
-### Changing Languages
-
-Open Settings from the menu bar icon to:
-- Set source language (or leave as Auto-detect)
-- Set target language
-- Download language packs for offline use
-- Customize the keyboard shortcut
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| UI | SwiftUI + AppKit |
-| OCR | Apple Vision |
-| Translation | Apple Translation (on-device), DeepL, Google, Azure |
-| Data | SwiftData |
-| Updates | Sparkle |
-| Architecture | @Observable, MainActor isolation |
-
-## Contributors
-
-Thanks to everyone who has helped make ScreenTranslate better:
-
-- [@sickerin](https://github.com/sickerin) — original idea and prototype for Live Translate ([#4](https://github.com/hcmhcs/screenTranslate/pull/4))
-
-Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+感谢 ScreenTranslate 原作者 hanchangmin，感谢 LunaTranslator 项目，也感谢每一位制作和分享预翻译库的作者。

@@ -13,7 +13,7 @@ struct OnboardingView: View {
     var permissionChecker: PermissionChecking = SystemPermissionChecker()
     var onComplete: () -> Void
 
-    private let totalSteps = 3
+    private let totalSteps = 2  // Luna 版：去掉截图翻译快捷键那一步
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,8 +27,6 @@ struct OnboardingView: View {
                 switch currentStep {
                 case 0:
                     permissionStep
-                case 1:
-                    shortcutStep
                 default:
                     languagePackStep
                 }

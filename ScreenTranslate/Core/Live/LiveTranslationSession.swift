@@ -61,6 +61,8 @@ final class LiveTranslationSession {
     @ObservationIgnored private var stabilizer = LiveTextStabilizer()
     @ObservationIgnored private var lastFingerprint: FrameFingerprint?
     @ObservationIgnored private var lastRecognized: String?
+    /// Luna only: Vision's lower-ranked readings of the latest frame, keyed by line text.
+    @ObservationIgnored private var lastAlternates: [String: [String]] = [:]
     @ObservationIgnored private var pendingText: String?
     @ObservationIgnored private var hasShownSubtitle = false
     @ObservationIgnored private var loopTask: Task<Void, Never>?
@@ -81,6 +83,11 @@ final class LiveTranslationSession {
 
     func start() {
         guard !isRunning else { return }
+        (dependencies.translator as? LunaPretranslationProvider)?.resetContext()
+        stabilizer = LiveTextStabilizer()
+        lastFingerprint = nil
+        lastRecognized = nil
+        lastAlternates = [:]
         isRunning = true
         setDisplay(.message(L10n.liveWaitingForText))
         loopTask = Task { [weak self] in
@@ -103,6 +110,7 @@ final class LiveTranslationSession {
         loopTask = nil
         cancelTranslation()
         pendingText = nil
+        (dependencies.translator as? LunaPretranslationProvider)?.resetContext()
         setDisplay(.hidden)
         onStop?(reason)
     }
@@ -121,8 +129,11 @@ final class LiveTranslationSession {
         }
         guard isRunning, let recognized = await recognizeIfChanged(image), isRunning else { return }
 
-        let text = preprocess() ? TranslationCoordinator.preprocessOCRText(recognized) : recognized
-        switch stabilizer.ingest(text) {
+        // Luna needs the layout boundaries. Its own normalization handles wrapped lines.
+        let isLuna = dependencies.translator is LunaPretranslationProvider
+        let text = preprocess() && !isLuna ? TranslationCoordinator.preprocessOCRText(recognized) : recognized
+        let trusted = (dependencies.translator as? LunaPretranslationProvider)?.isCompleteExactHit(text) ?? false
+        switch stabilizer.ingest(text, preservingLineBreaks: isLuna, acceptImmediately: trusted) {
         case .show(let subtitle):
             cancelTranslation()
             pendingText = subtitle
@@ -153,9 +164,13 @@ final class LiveTranslationSession {
         }
         let text: String
         do {
-            text = try await dependencies.ocr.recognize(image: image).text
+            let result = try await dependencies.ocr.recognize(image: image)
+            let isLuna = dependencies.translator is LunaPretranslationProvider
+            text = isLuna ? result.dialogueText : result.text
+            lastAlternates = isLuna ? result.dialogueAlternates : [:]
         } catch OCRError.noTextFound {
             text = ""
+            lastAlternates = [:]
         } catch {
             return nil
         }
@@ -173,6 +188,7 @@ final class LiveTranslationSession {
         translationToken = token
         let (source, target) = languages()
         let translator = dependencies.translator
+        let alternates = lastAlternates
         let checkReadiness = dependencies.checkReadiness
         translationTask = Task { [weak self] in
             do {
@@ -184,7 +200,12 @@ final class LiveTranslationSession {
                     case .unsupported: throw TranslationError.languageNotSupported
                     }
                 }
-                let translated = try await translator.translate(text: text, from: source, to: target)
+                let translated: String
+                if let luna = translator as? LunaPretranslationProvider {
+                    translated = try luna.translate(text: text, lineAlternates: alternates)
+                } else {
+                    translated = try await translator.translate(text: text, from: source, to: target)
+                }
                 self?.finishTranslation(token, text: text, result: .success(translated))
             } catch {
                 self?.finishTranslation(token, text: text, result: .failure(error))

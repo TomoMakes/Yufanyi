@@ -6,6 +6,8 @@ import Foundation
 /// 레거시 VNRecognizeTextRequest 대신 async/await 네이티브 API로 구현.
 final class VisionOCRProvider: OCRProvider {
     private let recognitionLevel: RecognizeTextRequest.RecognitionLevel
+    /// 2026-11-06 real screenshots: the correct reading (薔子, 犀鳥) was candidate #2.
+    static let alternateCount = 5
 
     /// 실시간 번역은 반복 호출 비용 때문에 수준을 바꿔 쓸 수 있다 (측정 결과에 따름)
     init(recognitionLevel: RecognizeTextRequest.RecognitionLevel = .accurate) {
@@ -35,10 +37,21 @@ final class VisionOCRProvider: OCRProvider {
         // 감지된 언어 추출 — v2에서 NLLanguageRecognizer로 보강
         let detectedLanguage: Locale.Language? = nil
 
+        let blocks = observations.compactMap { observation -> OCRTextBlock? in
+            // Same recognition pass; lower-ranked readings cost nothing extra.
+            let candidates = observation.topCandidates(Self.alternateCount)
+            guard let candidate = candidates.first else { return nil }
+            let box = observation.boundingBox
+            return OCRTextBlock(text: candidate.string, boundingBox: CGRect(
+                x: box.origin.x * Double(image.width), y: box.origin.y * Double(image.height),
+                width: box.width * Double(image.width), height: box.height * Double(image.height)),
+                alternates: candidates.dropFirst().map(\.string).filter { $0 != candidate.string })
+        }
         return OCRResult(
             text: text,
             detectedLanguage: detectedLanguage,
-            confidence: avgConfidence
+            confidence: avgConfidence,
+            blocks: blocks
         )
     }
 }
