@@ -3,12 +3,21 @@ import SwiftUI
 
 struct MenuBarView: View {
     var body: some View {
+        if AppOrchestrator.shared.liveHitStats?.showsLowRateWarning == true {
+            Text(L10n.hitRateLowWarning)
+            Divider()
+        }
+
         Button(AppOrchestrator.shared.isLiveTranslating ? L10n.stopLiveTranslation : L10n.liveTranslateMenu) {
             AppOrchestrator.shared.toggleLiveTranslation()
         }
         .globalKeyboardShortcut(.liveTranslate)
 
         Divider()
+
+        Button(L10n.contactAuthor) {
+            AppOrchestrator.shared.showContact()
+        }
 
         Button(L10n.aboutApp) {
             AppOrchestrator.shared.showAbout()

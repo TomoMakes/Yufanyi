@@ -68,7 +68,8 @@ extension SerializedDefaultsSuite {
         #expect(AppSettings.shared.autoCopyToClipboard == true)
     }
 
-    @Test("default sourceLanguageCode is auto")
+    // 预翻译库都是日语→中文，源语言固定日语（2026-11-06 定）
+    @Test("sourceLanguageCode is always Japanese")
     func defaultSourceLanguageCode() {
         let key = "com.screentranslate.sourceLanguageCode"
         let saved = UserDefaults.standard.string(forKey: key)
@@ -78,7 +79,7 @@ extension SerializedDefaultsSuite {
         }
 
         UserDefaults.standard.removeObject(forKey: key)
-        #expect(AppSettings.shared.sourceLanguageCode == "auto")
+        #expect(AppSettings.shared.sourceLanguageCode == "ja")
     }
 
     @Test("default showMenuBarIcon is true")
@@ -109,7 +110,8 @@ extension SerializedDefaultsSuite {
         #expect(AppSettings.shared.showMenuBarIcon == false)
     }
 
-    @Test("live translate is off by default")
+    // 预翻译 for Mac：实时翻译是唯一功能，始终开启（2026-11-06 定），存了 false 也不关
+    @Test("live translate is always on, whatever is stored")
     func defaultLiveTranslateEnabled() {
         let key = "com.screentranslate.liveTranslateEnabled"
         let saved = UserDefaults.standard.object(forKey: key)
@@ -119,12 +121,14 @@ extension SerializedDefaultsSuite {
         }
 
         UserDefaults.standard.removeObject(forKey: key)
-        #expect(AppSettings.shared.liveTranslateEnabled == false)
+        #expect(AppSettings.shared.liveTranslateEnabled == true)
+        UserDefaults.standard.set(false, forKey: key)
+        #expect(AppSettings.shared.liveTranslateEnabled == true)
     }
 
     // MARK: - Computed Properties
 
-    @Test("sourceLanguage returns nil when code is auto")
+    @Test("a stored auto still gives Japanese")
     func sourceLanguageAuto() {
         let key = "com.screentranslate.sourceLanguageCode"
         let saved = UserDefaults.standard.string(forKey: key)
@@ -134,10 +138,10 @@ extension SerializedDefaultsSuite {
         }
 
         UserDefaults.standard.set("auto", forKey: key)
-        #expect(AppSettings.shared.sourceLanguage == nil)
+        #expect(AppSettings.shared.sourceLanguage?.minimalIdentifier == "ja")
     }
 
-    @Test("sourceLanguage returns Locale.Language when code is set")
+    @Test("another stored language still gives Japanese")
     func sourceLanguageSpecific() {
         let key = "com.screentranslate.sourceLanguageCode"
         let saved = UserDefaults.standard.string(forKey: key)
@@ -149,7 +153,7 @@ extension SerializedDefaultsSuite {
         UserDefaults.standard.set("en", forKey: key)
         let lang = AppSettings.shared.sourceLanguage
         #expect(lang != nil)
-        #expect(lang?.minimalIdentifier == "en")
+        #expect(lang?.minimalIdentifier == "ja")
     }
 
     @Test("targetLanguage returns Locale.Language from targetLanguageCode")

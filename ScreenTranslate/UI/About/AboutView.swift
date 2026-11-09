@@ -26,8 +26,8 @@ struct AboutView: View {
             Divider()
 
             VStack(spacing: 6) {
-                Text("基于 ScreenTranslate 修改，以 GPLv3 协议发布")
-                Link("ScreenTranslate 原项目（GitHub）", destination: URL(string: "https://github.com/hcmhcs/screenTranslate")!)
+                Text(L10n.aboutBasedOn)
+                Link(L10n.aboutUpstreamLink, destination: URL(string: "https://github.com/hcmhcs/screenTranslate")!)
             }
             .font(.caption)
             .foregroundStyle(.secondary)

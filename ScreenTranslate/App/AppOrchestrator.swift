@@ -508,6 +508,7 @@ final class AppOrchestrator {
         case onboarding
         case settings
         case about
+        case contact
         case history
     }
 
@@ -589,6 +590,8 @@ final class AppOrchestrator {
     // MARK: - 실시간 번역 (베타, PR #4)
 
     private(set) var isLiveTranslating = false
+    /// 本次实时翻译的预翻译命中统计，菜单栏显示用；没在实时翻译时为 nil
+    private(set) var liveHitStats: LunaHitStats?
     @ObservationIgnored private var liveSession: LiveTranslationSession?
     @ObservationIgnored private var liveRegionWindow: LiveRegionWindow?
     @ObservationIgnored private var liveSubtitleBar: LiveSubtitleBar?
@@ -613,10 +616,11 @@ final class AppOrchestrator {
             }
             let missing: [String]
             if AppSettings.shared.useLunaPretranslation {
-                guard !AppSettings.shared.lunaDatabasePath.isEmpty,
-                      FileManager.default.fileExists(atPath: AppSettings.shared.lunaDatabasePath) else {
+                LunaLibraryStore.shared.migrateLegacyPathIfNeeded()
+                guard let path = LunaLibraryStore.shared.activePath,
+                      FileManager.default.fileExists(atPath: path) else {
                     isSelectingRegion = false
-                    showFailurePopup("请先在设置 → 高级 → Luna 预翻译中选择 .sqlite 文件")
+                    showFailurePopup(L10n.lunaLibraryMissing)
                     return
                 }
                 missing = []
@@ -676,7 +680,10 @@ final class AppOrchestrator {
                 // 원문 언어에 따라 인식 수준이 달라지므로 세션마다 만든다
                 ocr: VisionOCRProvider.liveTranslation(sourceCode: AppSettings.shared.sourceLanguageCode),
                 translator: AppSettings.shared.useLunaPretranslation
-                    ? LunaPretranslationProvider(path: AppSettings.shared.lunaDatabasePath)
+                    ? LunaPretranslationProvider(
+                        path: LunaLibraryStore.shared.activePath ?? "",
+                        lookAlikeEnabled: UserDefaults.standard.bool(forKey: AppSettings.lunaLookAlikeKey)
+                    )
                     : liveTranslator,
                 isTranslatorBusy: { !AppSettings.shared.useLunaPretranslation && TranslationBridge.shared.isTranslating },
                 checkReadiness: { text, target in
@@ -691,6 +698,7 @@ final class AppOrchestrator {
             preprocess: { AppSettings.shared.ocrTextPreprocessing }
         )
         session.onDisplayChange = { [weak self] display in self?.refreshLiveSubtitleBar(display) }
+        session.onHitStatsChange = { [weak self] stats in self?.liveHitStats = stats }
         session.onStop = { [weak self] reason in self?.liveSessionDidStop(reason) }
         regionWindow.onStop = { [weak self] in self?.stopLiveTranslation(.user) }
         regionWindow.onShowFullText = { [weak bar] in bar?.showFullText() }
@@ -725,6 +733,7 @@ final class AppOrchestrator {
         liveSubtitleBar = nil
         liveSession = nil
         liveStartedAt = nil
+        liveHitStats = nil
         isLiveTranslating = false
         TelemetryDeck.signal("liveTranslateStopped", parameters: [
             "reason": LiveTelemetry.reasonName(reason),
@@ -870,6 +879,16 @@ final class AppOrchestrator {
         window.center()
         window.contentView = NSHostingView(rootView: AboutView())
         presentAndStore(window, as: .about)
+    }
+
+    func showContact() {
+        guard !focusExistingWindow(.contact) else { return }
+
+        let window = makeAuxiliaryWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200))
+        window.title = L10n.contactWindowTitle
+        window.center()
+        window.contentView = NSHostingView(rootView: ContactView())
+        presentAndStore(window, as: .contact)
     }
 
     // MARK: - 히스토리 윈도우

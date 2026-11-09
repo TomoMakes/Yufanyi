@@ -18,7 +18,11 @@ final class VisionOCRProvider: OCRProvider {
         var request = RecognizeTextRequest()
         request.recognitionLevel = recognitionLevel
         request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
+        // 2026-11-06：预翻译库都是日文原文，识别语言固定为日语。
+        // 自动判断语言时，汉字多的句子会被当成中文识别，假名整个丢掉
+        // （例：「紅、蒼、緑、紫、無数の色が散る。」认成「紅、蒼、禄、紫、無数の色 散 。」）。
+        request.automaticallyDetectsLanguage = false
+        request.recognitionLanguages = [Locale.Language(identifier: "ja-JP")]
 
         let observations = try await request.perform(on: image)
 

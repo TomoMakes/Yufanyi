@@ -39,6 +39,14 @@ final class L10nTests: XCTestCase {
         }
     }
 
+    func test_allStrings_notEmpty_traditional() {
+        UserDefaults.standard.set("zh-Hant", forKey: appLanguageKey)
+
+        for (name, value) in allStaticStrings() {
+            XCTAssertFalse(value.isEmpty, "L10n.\(name) 繁体值为空")
+        }
+    }
+
     func test_functionStrings_notEmpty_english() {
         UserDefaults.standard.set("en", forKey: appLanguageKey)
 
@@ -72,7 +80,10 @@ final class L10nTests: XCTestCase {
                     "ocrEngineName", "translationEngineName",
                     "copied",  // "Copied" 같은 짧은 표현
                 ]
-                if !allowedSameKeys.contains(en.0) {
+                // 预翻译 for Mac 已删韩语界面（2026-11-06），之后新加的文字韩语位置直接填英文
+                let addedAfterKoreanRemoved = en.0.hasPrefix("luna") || en.0.hasPrefix("hitRate")
+                    || en.0.hasPrefix("showHitRate") || en.0.hasPrefix("aboutBasedOn") || en.0.hasPrefix("contact") || en.0.hasPrefix("aboutUpstream")
+                if !allowedSameKeys.contains(en.0) && !addedAfterKoreanRemoved {
                     XCTFail("L10n.\(en.0) 영어와 한국어가 동일 (\"\(en.1)\") — 번역 누락 가능성")
                 }
             }
@@ -143,6 +154,42 @@ final class L10nTests: XCTestCase {
             ("menuBarIconDesc", L10n.menuBarIconDesc),
             ("menuBarIconHiddenDesc", L10n.menuBarIconHiddenDesc),
             ("menuBarIconMissing", L10n.menuBarIconMissing),
+            ("showHitRateInMenuBar", L10n.showHitRateInMenuBar),
+            ("showHitRateInMenuBarDesc", L10n.showHitRateInMenuBarDesc),
+            ("hitRateLowWarning", L10n.hitRateLowWarning),
+            ("lunaLibrarySection", L10n.lunaLibrarySection),
+            ("lunaUseToggle", L10n.lunaUseToggle),
+            ("lunaLibraryEmpty", L10n.lunaLibraryEmpty),
+            ("lunaLibraryImport", L10n.lunaLibraryImport),
+            ("lunaLibraryImportPanel", L10n.lunaLibraryImportPanel),
+            ("lunaLibraryRemove", L10n.lunaLibraryRemove),
+            ("lunaLibraryUse", L10n.lunaLibraryUse),
+            ("lunaLibraryHelp", L10n.lunaLibraryHelp),
+            ("lunaLookAlikeToggle", L10n.lunaLookAlikeToggle),
+            ("lunaLookAlikeDesc", L10n.lunaLookAlikeDesc),
+            ("lunaLibraryRemoveTitle", L10n.lunaLibraryRemoveTitle),
+            ("lunaLibraryImportFailed", L10n.lunaLibraryImportFailed),
+            ("lunaLibraryNotLuna", L10n.lunaLibraryNotLuna),
+            ("lunaLibraryMissing", L10n.lunaLibraryMissing),
+            ("lunaFileMissing", L10n.lunaFileMissing),
+            ("lunaNotStandard", L10n.lunaNotStandard),
+            ("lunaNoRows", L10n.lunaNoRows),
+            ("aboutBasedOn", L10n.aboutBasedOn),
+            ("contactAuthor", L10n.contactAuthor),
+            ("contactWindowTitle", L10n.contactWindowTitle),
+            ("contactIntro", L10n.contactIntro),
+            ("contactSocialDetail", L10n.contactSocialDetail),
+            ("contactCopyName", L10n.contactCopyName),
+            ("contactQuarkDetail", L10n.contactQuarkDetail),
+            ("contactCopyGroupID", L10n.contactCopyGroupID),
+            ("contactGitHubTitle", L10n.contactGitHubTitle),
+            ("contactGitHubDetail", L10n.contactGitHubDetail),
+            ("contactEmailTitle", L10n.contactEmailTitle),
+            ("contactOpen", L10n.contactOpen),
+            ("contactDownload", L10n.contactDownload),
+            ("contactReportIssue", L10n.contactReportIssue),
+            ("contactWriteEmail", L10n.contactWriteEmail),
+            ("aboutUpstreamLink", L10n.aboutUpstreamLink),
             ("hideMenuBarIconTitle", L10n.hideMenuBarIconTitle),
             ("hideMenuBarIconMessage", L10n.hideMenuBarIconMessage),
             ("hideMenuBarIconConfirm", L10n.hideMenuBarIconConfirm),

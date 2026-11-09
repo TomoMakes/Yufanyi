@@ -157,6 +157,13 @@ nonisolated struct OCRResult: Sendable {
         var kept = blocks.filter { block in
             let text = trimmed(block), box = block.boundingBox
             if text.isEmpty { return false }
+            // Tiny letter-less speck off every dialogue row (e.g. "3？" read from a
+            // background sign once OCR is fixed to Japanese). Narrower than one glyph,
+            // so a real 「……」 line is never dropped.
+            if letterCount(text) == 0 && box.height < typical * 0.6 && box.width < typical
+                && !dialogue.contains(where: { d in
+                    abs(d.boundingBox.midY - box.midY) < max(d.boundingBox.height, box.height) * 0.5
+                }) { return false }
             if punctuated(block) { return true }
             let kanaOnly = text.range(of: "^[\\p{Hiragana}\\p{Katakana}ー]+$", options: .regularExpression) != nil
             // Furigana: small kana directly above a dialogue line that it overlaps horizontally.

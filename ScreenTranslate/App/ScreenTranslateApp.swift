@@ -21,10 +21,28 @@ struct ScreenTranslateApp: App {
 
     var body: some Scene {
         // 같은 값 되쓰기를 걸러야 한다 — 그대로 연결하면 CPU 100% 루프 (Binding+WritingOnlyChanges 참고)
-        MenuBarExtra("预翻译 for Mac", image: "MenuBarIcon", isInserted: $showMenuBarIcon.writingOnlyChanges()) {
+        MenuBarExtra(isInserted: $showMenuBarIcon.writingOnlyChanges()) {
             MenuBarView()
+        } label: {
+            MenuBarLabel()
         }
         .menuBarExtraStyle(.menu)
+    }
+}
+
+/// 菜单栏：图标；实时翻译时后面跟「命中 80%」，过低时再加 ⚠
+private struct MenuBarLabel: View {
+    @AppStorage(AppSettings.showHitRateInMenuBarKey) private var showHitRate = true
+
+    var body: some View {
+        let stats = AppOrchestrator.shared.liveHitStats
+        if showHitRate, let stats, let summary = stats.summary {
+            Image("MenuBarIcon")
+            // ⚠ 加 U+FE0E 走文字样式，和菜单栏其他文字同色
+            Text(stats.showsLowRateWarning ? "\(summary) \u{26A0}\u{FE0E}" : summary)
+        } else {
+            Image("MenuBarIcon")
+        }
     }
 }
 

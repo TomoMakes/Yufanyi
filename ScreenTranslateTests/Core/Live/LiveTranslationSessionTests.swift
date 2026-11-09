@@ -19,6 +19,7 @@ import Testing
         private(set) var readinessChecks = 0
         var region = LiveRegion(rect: CGRect(x: 0, y: 0, width: 96, height: 24), displayID: 1, scale: 1)
         private(set) var stopReasons: [LiveTranslationSession.StopReason] = []
+        private(set) var sleeps: [Duration] = []
         private(set) var session: LiveTranslationSession!
 
         /// 기본 인자는 격리되지 않은 문맥에서 평가되므로 MainActor 가짜는 안에서 만든다
@@ -35,7 +36,7 @@ import Testing
                         self.readinessChecks += 1
                         return self.readiness
                     },
-                    sleep: { _ in }
+                    sleep: { @MainActor [weak self] duration in self?.sleeps.append(duration) }
                 ),
                 region: { [unowned self] in self.region },
                 languages: { [unowned self] in (self.sourceLanguage, Locale.Language(identifier: "ko")) },
@@ -76,15 +77,95 @@ import Testing
         h.session.stop(.user)
     }
 
-    @Test("an unchanged screen skips text recognition")
+    @Test("an unchanged screen skips text recognition once its subtitle is shown")
     func unchangedFrameSkipsOCR() async {
         let h = Harness(ocr: ["Hello"])
         h.session.start()
         let frame = TestImages.block(at: 0)
+        // 第二次是真的再认一遍，用来确认字幕，不拿上一次的结果顶替
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { h.session.display == .subtitle("번역:Hello") }
         for _ in 0..<3 {
             await h.feed(frame)
         }
-        #expect(h.ocr.callCount == 1)
+        #expect(h.ocr.callCount == 2)
+        h.session.stop(.user)
+    }
+
+    @Test("a missed subtitle is read again while the screen looks unchanged")
+    func missIsReread() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n化科"), .success("仁科译")]
+        let h = Harness(ocr: ["化科", "化科", "仁科", "仁科"], translator: recorder)
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { recorder.requests == ["化科"] }
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { h.session.display == .subtitle("仁科译") }
+        #expect(h.session.display == .subtitle("仁科译"))
+        #expect(recorder.requests == ["化科", "仁科"])
+        #expect(h.ocr.callCount == 4)
+        h.session.stop(.user)
+    }
+
+    @Test("re-reading an unchanged screen stops after the limit")
+    func rereadsAreLimited() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n知らない")]
+        let h = Harness(ocr: ["知らない"], translator: recorder)
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        for _ in 0..<8 {
+            await h.feed(frame)
+            await h.settle { recorder.requests.count == 1 }
+        }
+        #expect(h.ocr.callCount == 1 + LiveTranslationSession.maxUnchangedRereads)
+        #expect(recorder.requests == ["知らない"])
+        h.session.stop(.user)
+    }
+
+    @Test("the next capture comes sooner while new text waits to be confirmed")
+    func quickIntervalWhileUnsettled() async {
+        let h = Harness(ocr: ["Hello"])
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        await h.feed(frame)
+        #expect(h.sleeps.last == .milliseconds(120))
+        await h.feed(frame)
+        await h.settle { h.session.display == .subtitle("번역:Hello") }
+        await h.feed(frame)
+        #expect(h.sleeps.last == .milliseconds(333))
+        h.session.stop(.user)
+    }
+
+    @Test("an empty screen keeps the normal interval")
+    func normalIntervalWhenEmpty() async {
+        let h = Harness(ocr: [""])
+        h.session.start()
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        #expect(h.sleeps.allSatisfy { $0 == .milliseconds(333) })
+        h.session.stop(.user)
+    }
+
+    @Test("a changed screen resets the re-read limit")
+    func changedFrameResetsRereads() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\nA")]
+        let h = Harness(ocr: ["A"], translator: recorder)
+        h.session.start()
+        for _ in 0..<5 {
+            await h.feed(TestImages.block(at: 0))
+            await h.settle { recorder.requests.count == 1 }
+        }
+        let before = h.ocr.callCount
+        await h.feed(TestImages.block(at: 60))
+        await h.feed(TestImages.block(at: 60))
+        #expect(h.ocr.callCount == before + 2)
         h.session.stop(.user)
     }
 

@@ -25,6 +25,8 @@ final class LunaPretranslationProvider: TranslationProvider {
     private var repairIndex: [String: [Int]] = [:]
     private var exactPositions: [String: [Int64]] = [:]
     private let contextEnabled: Bool
+    /// Settings, default off: try swapping one look-alike character (see lookAlikeMatch)
+    private let lookAlikeEnabled: Bool
     private var lastExactID: Int64?
     private var reliableRun = 0
     private var consecutiveMisses = 0
@@ -37,9 +39,10 @@ final class LunaPretranslationProvider: TranslationProvider {
         consecutiveMisses = 0
     }
 
-    init(path: String, contextEnabled: Bool = true) {
+    init(path: String, contextEnabled: Bool = true, lookAlikeEnabled: Bool = false) {
         databasePath = path
         self.contextEnabled = contextEnabled
+        self.lookAlikeEnabled = lookAlikeEnabled
     }
 
     func translate(text: String, from source: Locale.Language?, to target: Locale.Language) async throws -> String {
@@ -276,9 +279,21 @@ final class LunaPretranslationProvider: TranslationProvider {
             || (trimmed.contains("(") && trimmed.last == ")")
     }
 
+    // Real screenshots 2026-11-09: long turns misread by two characters (貴方のことは →
+    // 貴方の5点は; 空木 → 塾米 under ruby) stayed unmatched, because score >= 0.97 allows
+    // a second error only from 67 characters. Extra rule, tried only after the original
+    // one fails: both texts 34+ characters and of equal length (misread characters only -
+    // an extra short line such as a name or menu word must not be swallowed), the best
+    // record within 2 edits, and no record with a different translation within
+    // `twoEditRivalLimit` edits.
+    static let twoEditMinimumLength = 34
+    static let twoEditRivalLimit = 4
+
     private func fuzzyMatch(_ text: String) -> String? {
         guard let rows, !Self.hasUnclosedOpening(text) else { return nil }
         var scores: [String: Double] = [:]
+        // Per translation: the smallest distance and whether that record is long enough.
+        var nearest: [String: (distance: Int, long: Bool)] = [:]
         for strictQuery in queryVariants(text) where strictQuery.count >= 28 {
             let query = Self.looseKey(strictQuery)
             let queryLength = strictQuery.count
@@ -289,15 +304,27 @@ final class LunaPretranslationProvider: TranslationProvider {
                 // Score near misses as well, so a just-below-threshold rival still blocks
                 // an ambiguous result. No unbounded substring/containment acceptance.
                 let limit = max(1, Int(Double(maxLength) * 0.10))
-                guard let distance = Self.editDistanceWithin(query, key, limit: limit) else { continue }
-                let score = 1.0 - Double(distance) / Double(maxLength)
+                let searchLimit = queryLength >= Self.twoEditMinimumLength ? max(limit, Self.twoEditRivalLimit) : limit
+                guard let distance = Self.editDistanceWithin(query, key, limit: searchLimit) else { continue }
                 let translation = rows[index].translation
+                let long = queryLength >= Self.twoEditMinimumLength && rows[index].strictLength == queryLength
+                if let old = nearest[translation], old.distance <= distance {} else {
+                    nearest[translation] = (distance, long)
+                }
+                guard distance <= limit else { continue }
+                let score = 1.0 - Double(distance) / Double(maxLength)
                 scores[translation] = max(scores[translation] ?? 0, score)
             }
         }
         let ranked = scores.sorted { $0.value > $1.value }
-        guard let best = ranked.first, best.value >= 0.97,
-              best.value - (ranked.dropFirst().first?.value ?? 0) >= 0.02 else { return nil }
+        if let best = ranked.first, best.value >= 0.97,
+           best.value - (ranked.dropFirst().first?.value ?? 0) >= 0.02 {
+            return best.key
+        }
+        let byDistance = nearest.sorted { $0.value.distance < $1.value.distance }
+        guard let best = byDistance.first, best.value.long, best.value.distance <= 2,
+              byDistance.dropFirst().allSatisfy({ $0.value.distance > Self.twoEditRivalLimit })
+        else { return nil }
         return best.key
     }
 
@@ -306,6 +333,8 @@ final class LunaPretranslationProvider: TranslationProvider {
         if let hit = exactMatch(text) { return hit }
         if let hit = longVowelMatch(text) { return hit }
         if let hit = leadingSymbolMatch(text) { return hit }
+        if let hit = dashDroppedMatch(text) { return hit }
+        if let hit = lookAlikeMatch(text) { return hit }
         // A missing final quote is not permission to match an unrelated unquoted record.
         // Only restore one closing delimiter when the entire long body is an exact record.
         if !Self.balanced(text) {
@@ -370,6 +399,78 @@ final class LunaPretranslationProvider: TranslationProvider {
         if let plain = exact[String(open) + body], plain != translation { return nil }
         if ambiguousExact.contains(String(open) + body) { return nil }
         return translation
+    }
+
+    // Real play 2026-11-09 (色ドリ撫子, record 52154): Vision dropped a line-final ───
+    // entirely (和綴じ本に───アウラはない。 read as 和綴じ本に / アウラはない。). The turn is
+    // too short for the fuzzy layer and one length off for the repair layer. Records
+    // containing a dash run are indexed by their dash-free text; a query (dashes also
+    // removed) must have 8+ letters and every competing record - dashed or plain -
+    // must agree on one translation.
+    private static let dashRunPattern = try! NSRegularExpression(pattern: "[―─—–]+|[ー一-]{2,}")
+    private var dashlessIndex: [String: Set<String>] = [:]
+
+    private static func dashlessKey(_ key: String) -> String {
+        dashRunPattern.stringByReplacingMatches(in: key, range: NSRange(key.startIndex..., in: key), withTemplate: "")
+    }
+
+    private func dashDroppedMatch(_ text: String) -> String? {
+        for query in queryVariants(text) {
+            let key = Self.dashlessKey(query)
+            guard key.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 8,
+                  var translations = dashlessIndex[key] else { continue }
+            if ambiguousExact.contains(key) { return nil }
+            if let plain = exact[key] { translations.insert(plain) }
+            return translations.count == 1 ? translations.first : nil
+        }
+        return nil
+    }
+
+    // 2026-11-09, opt-in (Settings, default off): OCR reads one character of a line as a
+    // look-alike (仁科 → 化科, っつーか → つつーか, 鳥 → 島). Short lines get no fuzzy
+    // matching, so swap one such character back and accept an exact (strict/loose) record
+    // only when every accepted swap agrees on one translation and none is ambiguous.
+    // Another record can sit exactly one look-alike away from the misread one and the
+    // swap may land on it - a small chance of the wrong line, hence off by default.
+    private static let lookAlikeGroups = [
+        "仁化", "鳥島", "末未", "土士", "千干", "人入", "己已巳", "日曰",
+        "っつ", "ゃや", "ゅゆ", "ょよ", "ぁあ", "ぃい", "ぅう", "ぇえ", "ぉお",
+        "ッツ", "ャヤ", "ュユ", "ョヨ", "ァア", "ィイ", "ゥウ", "ェエ", "ォオ", "ヶケ",
+        "ー一", "カ力", "ロ口", "エ工", "ニ二", "ハ八", "タ夕", "ト卜", "ヘへ", "ベべ", "ペぺ", "リり",
+        "ばぱ", "びぴ", "ぶぷ", "べぺ", "ぼぽ", "バパ", "ビピ", "ブプ", "ベペ", "ボポ",
+    ]
+    private static let lookAlikes: [Character: [Character]] = {
+        var map: [Character: Set<Character>] = [:]
+        for group in lookAlikeGroups {
+            for c in group { map[c, default: []].formUnion(group.filter { $0 != c }) }
+        }
+        return map.mapValues { Array($0).sorted() }
+    }()
+
+    private func lookAlikeMatch(_ text: String) -> String? {
+        guard lookAlikeEnabled,
+              Self.normalized(text).unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 2
+        else { return nil }
+        let characters = Array(text)
+        var translations = Set<String>()
+        for (index, character) in characters.enumerated() {
+            guard let alternatives = Self.lookAlikes[character] else { continue }
+            for alternative in alternatives {
+                var swapped = characters
+                swapped[index] = alternative
+                // Whole text only: query variants that strip a name-like first line would let
+                // a swap inside a known first line (話に入る → 話に人る) turn it into a "name".
+                let key = Self.normalized(String(swapped))
+                // Relaxed punctuation only for a closed turn, as in exactMatch.
+                let loose = Self.balanced(key) ? Self.looseKey(key) : nil
+                if ambiguousExact.contains(key) || loose.map(ambiguousLoose.contains) == true { return nil }
+                if let translation = exact[key] ?? loose.flatMap({ looseExact[$0] }), !translation.isEmpty {
+                    translations.insert(translation)
+                }
+                if translations.count > 1 { return nil }
+            }
+        }
+        return translations.first
     }
 
     private static func hasUnclosedOpening(_ text: String) -> Bool {
@@ -499,6 +600,9 @@ final class LunaPretranslationProvider: TranslationProvider {
             consecutiveMisses = 0
             return translation
         }
+        // The whole text, first line included, is one record minus its dashes
+        // (もちろんそれは───『彼』のせいだ。 wrapped where the dash was lost): no prefix.
+        if dashlessIndex[Self.dashlessKey(normalized)] == [translation] { return translation }
         // A separated prefix may be a speaker or a short narrative. Preserve it
         // whenever matching succeeds only after removing it.
         let layout = text.precomposedStringWithCompatibilityMapping
@@ -533,20 +637,20 @@ final class LunaPretranslationProvider: TranslationProvider {
 
     private func loadDatabase() throws {
         guard FileManager.default.fileExists(atPath: databasePath) else {
-            throw TranslationError.translationFailed("找不到 Luna 预翻译文件，请重新选择")
+            throw TranslationError.translationFailed(L10n.lunaFileMissing)
         }
         var handle: OpaquePointer?
         let status = sqlite3_open_v2(databasePath, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
         guard status == SQLITE_OK, let db = handle else {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown"
             if let handle { sqlite3_close(handle) }
-            throw TranslationError.translationFailed("无法打开 SQLite：\(message)")
+            throw TranslationError.translationFailed(L10n.lunaOpenFailed(message))
         }
         defer { sqlite3_close(db) }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT source, machineTrans, rowid FROM artificialtrans ORDER BY rowid", -1, &statement, nil) == SQLITE_OK,
               let query = statement else {
-            throw TranslationError.translationFailed("这不是标准 Luna 预翻译库：缺少 artificialtrans/source/machineTrans")
+            throw TranslationError.translationFailed(L10n.lunaNotStandard)
         }
         defer { sqlite3_finalize(query) }
 
@@ -566,6 +670,8 @@ final class LunaPretranslationProvider: TranslationProvider {
             let loose = Self.looseKey(key)
             if Self.needsRepairIndex(key), let repair = Self.repairKey(key) { repairIndex[repair, default: []].append(result.count) }
             if let body = Self.leadingSymbolBody(ofRecord: key) { leadingSymbolIndex[body, default: []].insert(translation) }
+            let dashless = Self.dashlessKey(key)
+            if dashless != key { dashlessIndex[dashless, default: []].insert(translation) }
             result.append(Entry(key: loose, strictKey: key, id: id, strictLength: key.count, translation: translation))
             if let prior = looseExact[loose], prior != translation {
                 ambiguousLoose.insert(loose)
@@ -580,7 +686,7 @@ final class LunaPretranslationProvider: TranslationProvider {
         }
             }
         guard !result.isEmpty else {
-            throw TranslationError.translationFailed("数据库中没有可用的日中对照记录")
+            throw TranslationError.translationFailed(L10n.lunaNoRows)
         }
         // Sample a handful of anchors per row, not every 5-gram; avoids large RAM usage.
         for (index, row) in result.enumerated() {

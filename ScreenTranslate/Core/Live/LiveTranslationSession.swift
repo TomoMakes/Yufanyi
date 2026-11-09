@@ -18,6 +18,8 @@ final class LiveTranslationSession {
         var checkReadiness: (String, Locale.Language) async -> Readiness = { _, _ in .ready }
         var sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
         var interval: Duration = .milliseconds(333)
+        /// 字刚变、还没定下来时的间隔：第二次确认来得快，AUTO 下停留很短的句子也来得及出字幕
+        var quickInterval: Duration = .milliseconds(120)
     }
 
     enum Display: Equatable {
@@ -39,6 +41,15 @@ final class LiveTranslationSession {
         var errorDescription: String? { L10n.liveSourcePackMissing }
     }
 
+    /// 画面没变时最多重新识别几次。库里本来没有的句子，重认几次还是同样的字，就不再耗电重认。
+    static let maxUnchangedRereads = 3
+
+    /// 一次识别的来历：第几次变化的文字、是不是画面没变时的重新识别
+    struct ReadInfo: Equatable {
+        var serial: Int
+        var isReread: Bool
+    }
+
     enum StopReason: Equatable {
         case user
         case screenLocked
@@ -50,6 +61,9 @@ final class LiveTranslationSession {
     private(set) var display: Display = .hidden
     private(set) var isRunning = false
     private(set) var translationCount = 0
+    /// 预翻译命中统计（只在用 Luna 预翻译库时记录）
+    private(set) var hitStats = LunaHitStats()
+    @ObservationIgnored var onHitStatsChange: ((LunaHitStats) -> Void)?
     @ObservationIgnored var onDisplayChange: ((Display) -> Void)?
     @ObservationIgnored var onStop: ((StopReason) -> Void)?
 
@@ -64,6 +78,16 @@ final class LiveTranslationSession {
     /// Luna only: Vision's lower-ranked readings of the latest frame, keyed by line text.
     @ObservationIgnored private var lastAlternates: [String: [String]] = [:]
     @ObservationIgnored private var pendingText: String?
+    /// 等着翻译的那句来自哪一次识别
+    @ObservationIgnored private var pendingRead = ReadInfo(serial: 0, isReread: false)
+    /// 识别出的文字每变一次加一；翻译回来时据此判断它还是不是画面上最新的那句
+    @ObservationIgnored private var readSerial = 0
+    /// 最近识别的文字是否已经定下来：出过命中的字幕，或者画面里没有字。
+    /// 没定下来时，画面看着没变也要重新识别——字还在打出、淡入时截到的那一帧可能认错，
+    /// 不能拿上一次的结果冒充第二次确认，也不能一直沿用认错的字。
+    @ObservationIgnored private var lastReadSettled = false
+    /// 画面没变却因为没定下来而重新识别的次数；画面一变就清零
+    @ObservationIgnored private var unchangedRereads = 0
     @ObservationIgnored private var hasShownSubtitle = false
     @ObservationIgnored private var loopTask: Task<Void, Never>?
     @ObservationIgnored private var translationTask: Task<Void, Never>?
@@ -88,13 +112,17 @@ final class LiveTranslationSession {
         lastFingerprint = nil
         lastRecognized = nil
         lastAlternates = [:]
+        lastReadSettled = false
+        unchangedRereads = 0
+        hitStats = LunaHitStats()
+        onHitStatsChange?(hitStats)
         isRunning = true
         setDisplay(.message(L10n.liveWaitingForText))
         loopTask = Task { [weak self] in
             while let self, self.isRunning, !Task.isCancelled {
                 await self.tick()
                 do {
-                    try await self.dependencies.sleep(self.dependencies.interval)
+                    try await self.dependencies.sleep(self.nextInterval)
                 } catch {
                     return
                 }
@@ -127,7 +155,8 @@ final class LiveTranslationSession {
             stop(.captureFailed(error.localizedDescription))
             return
         }
-        guard isRunning, let recognized = await recognizeIfChanged(image), isRunning else { return }
+        guard isRunning, let read = await recognizeIfChanged(image), isRunning else { return }
+        let (recognized, isReread) = read
 
         // Luna needs the layout boundaries. Its own normalization handles wrapped lines.
         let isLuna = dependencies.translator is LunaPretranslationProvider
@@ -137,6 +166,7 @@ final class LiveTranslationSession {
         case .show(let subtitle):
             cancelTranslation()
             pendingText = subtitle
+            pendingRead = ReadInfo(serial: readSerial, isReread: isReread)
         case .clear:
             cancelTranslation()
             pendingText = nil
@@ -149,6 +179,12 @@ final class LiveTranslationSession {
 
     // MARK: - Private
 
+    /// 字还没定下来（刚变、等确认，或没命中、还能重认）时缩短下一次截图的间隔
+    private var nextInterval: Duration {
+        let waiting = lastRecognized != nil && !lastReadSettled && unchangedRereads < Self.maxUnchangedRereads
+        return waiting ? dependencies.quickInterval : dependencies.interval
+    }
+
     private func setDisplay(_ newValue: Display) {
         guard display != newValue else { return }
         display = newValue
@@ -156,11 +192,20 @@ final class LiveTranslationSession {
     }
 
     /// 화면이 직전과 거의 같으면 인식을 건너뛰고 직전 결과를 쓴다. 인식이 실패하면 이번 틱은 건너뛴다(nil).
-    private func recognizeIfChanged(_ image: CGImage) async -> String? {
+    /// 画面没变但上一次的字还没定下来（没出字幕或没命中）时，最多再认 maxUnchangedRereads 次。
+    /// 返回的 isReread 表示这次是画面没变时的重新识别。
+    private func recognizeIfChanged(_ image: CGImage) async -> (String, Bool)? {
         let fingerprint = FrameFingerprint(image: image)
+        var isReread = false
         if let fingerprint, let lastFingerprint, let lastRecognized,
            fingerprint.isNearlyIdentical(to: lastFingerprint) {
-            return lastRecognized
+            if lastReadSettled || unchangedRereads >= Self.maxUnchangedRereads {
+                return (lastRecognized, false)
+            }
+            unchangedRereads += 1
+            isReread = true
+        } else {
+            unchangedRereads = 0
         }
         let text: String
         do {
@@ -175,8 +220,12 @@ final class LiveTranslationSession {
             return nil
         }
         lastFingerprint = fingerprint
+        if text != lastRecognized {
+            readSerial += 1
+            lastReadSettled = text.isEmpty
+        }
         lastRecognized = text
-        return text
+        return (text, isReread)
     }
 
     private func startPendingTranslationIfPossible() {
@@ -184,6 +233,7 @@ final class LiveTranslationSession {
         // 자기 요청이 없는데 브리지가 바쁘면 다른 기능(화면·빠른 번역)이 쓰는 중 — 사용자가 직접 한 번역이 우선
         guard !dependencies.isTranslatorBusy() else { return }
         pendingText = nil
+        let read = pendingRead
         let token = UUID()
         translationToken = token
         let (source, target) = languages()
@@ -206,14 +256,14 @@ final class LiveTranslationSession {
                 } else {
                     translated = try await translator.translate(text: text, from: source, to: target)
                 }
-                self?.finishTranslation(token, text: text, result: .success(translated))
+                self?.finishTranslation(token, text: text, read: read, result: .success(translated))
             } catch {
-                self?.finishTranslation(token, text: text, result: .failure(error))
+                self?.finishTranslation(token, text: text, read: read, result: .failure(error))
             }
         }
     }
 
-    private func finishTranslation(_ token: UUID, text: String, result: Result<String, Error>) {
+    private func finishTranslation(_ token: UUID, text: String, read: ReadInfo, result: Result<String, Error>) {
         guard token == translationToken else { return }  // 새 자막에 밀린 옛 결과
         translationTask = nil
         guard isRunning else { return }
@@ -221,10 +271,17 @@ final class LiveTranslationSession {
         case .success(let translated):
             hasShownSubtitle = true
             translationCount += 1
+            let missed = translated.contains(LunaHitStats.missMarker)
+            // 画面上还是这句：命中就定下来，不再重认；没命中留着，画面没变也再认几次
+            if read.serial == readSerial { lastReadSettled = !missed }
+            if dependencies.translator is LunaPretranslationProvider,
+               hitStats.record(source: text, output: translated, correctsLastMiss: read.isReread) {
+                onHitStatsChange?(hitStats)
+            }
             setDisplay(.subtitle(translated))
         case .failure(let error):
             if let translationError = error as? TranslationError, case .superseded = translationError {
-                pendingText = pendingText ?? text  // 다른 기능에 밀림 — 다음 틱에 다시
+                if pendingText == nil { pendingText = text; pendingRead = read }  // 다른 기능에 밀림 — 다음 틱에 다시
             } else if !(error is CancellationError) {
                 // 같은 자막은 안정화기가 다시 내보내지 않으므로 재시도하지 않는다
                 setDisplay(.message(error.localizedDescription))

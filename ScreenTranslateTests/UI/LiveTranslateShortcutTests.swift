@@ -9,7 +9,8 @@ extension SerializedDefaultsSuite {
 @MainActor
 @Suite struct LiveTranslateShortcutTests {
 
-    @Test("turning the beta off releases the hotkey and turning it on restores it")
+    // 预翻译 for Mac：实时翻译始终开启，设置成 false 也不会释放快捷键（2026-11-06 定）
+    @Test("the live translate hotkey stays enabled because live translate is always on")
     func followsBetaSetting() {
         let key = "com.screentranslate.liveTranslateEnabled"
         let savedBeta = UserDefaults.standard.object(forKey: key)
@@ -25,7 +26,7 @@ extension SerializedDefaultsSuite {
 
         AppSettings.shared.liveTranslateEnabled = false
         AppOrchestrator.shared.updateLiveTranslateShortcut()
-        #expect(!KeyboardShortcuts.isEnabled(for: .liveTranslate))
+        #expect(KeyboardShortcuts.isEnabled(for: .liveTranslate))
 
         AppSettings.shared.liveTranslateEnabled = true
         AppOrchestrator.shared.updateLiveTranslateShortcut()

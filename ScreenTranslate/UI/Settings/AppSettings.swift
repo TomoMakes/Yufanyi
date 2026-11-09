@@ -13,7 +13,7 @@ final class AppSettings {
     var appLanguage: String {
         get {
             access(keyPath: \.appLanguage)
-            return UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? "zh-Hans"
+            return UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? L10n.defaultLanguage
         }
         set {
             withMutation(keyPath: \.appLanguage) {
@@ -95,17 +95,7 @@ final class AppSettings {
         }
     }
 
-    var lunaDatabasePath: String {
-        get {
-            access(keyPath: \.lunaDatabasePath)
-            return UserDefaults.standard.string(forKey: "com.screentranslate.lunaDatabasePath") ?? ""
-        }
-        set {
-            withMutation(keyPath: \.lunaDatabasePath) {
-                UserDefaults.standard.set(newValue, forKey: "com.screentranslate.lunaDatabasePath")
-            }
-        }
-    }
+    // 库路径改由 LunaLibraryStore 管（导入制，2026-11-07）
 
     // MARK: - API Key Status (캐싱하여 매 렌더 시 Keychain 호출 방지)
 
@@ -264,6 +254,17 @@ final class AppSettings {
         }
     }
 
+    // MARK: - 菜单栏命中率
+
+    /// 实时翻译时在菜单栏图标旁显示预翻译命中率（免费功能，默认开启）
+    nonisolated static let showHitRateInMenuBarKey = "com.yufanyi.showHitRateInMenuBar"
+
+    // MARK: - 形近字容错
+
+    /// 预翻译匹配时把认错的形近字（仁/化、つ/っ、ー/一 等）换回来再查。
+    /// 默认关闭，需在设置中手动开启（有极小概率匹配到另一句）
+    nonisolated static let lunaLookAlikeKey = "com.yufanyi.lunaLookAlike"
+
     // MARK: - Onboarding
 
     var hasCompletedOnboarding: Bool {
@@ -384,8 +385,9 @@ final class AppSettings {
         ("uk", "Українська"),
         ("vi", "Tiếng Việt"),
         ]
-        guard (UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? "zh-Hans") == "zh-Hans" else { return languages }
-        let locale = Locale(identifier: "zh-Hans")
+        let appLanguage = UserDefaults.standard.string(forKey: "com.screentranslate.appLanguage") ?? L10n.defaultLanguage
+        guard appLanguage == "zh-Hans" || appLanguage == "zh-Hant" else { return languages }
+        let locale = Locale(identifier: appLanguage == "zh-Hant" ? "zh-Hant-TW" : "zh-Hans")
         return languages.map { (code: $0.code, name: locale.localizedString(forIdentifier: $0.code) ?? $0.name) }
     }
 }

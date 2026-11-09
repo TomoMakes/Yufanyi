@@ -31,7 +31,12 @@ struct SettingsView: View {
 
     /// @AppStorage로 직접 관찰 — 시스템이 아이콘을 빼서 값이 바뀌어도 토글이 따라온다
     @AppStorage(AppSettings.showMenuBarIconKey) private var showMenuBarIcon = true
+    @AppStorage(AppSettings.showHitRateInMenuBarKey) private var showHitRateInMenuBar = true
+    @AppStorage(AppSettings.lunaLookAlikeKey) private var lunaLookAlike = false
     @State private var showHideIconConfirm = false
+    @State private var libraryStore = LunaLibraryStore.shared
+    @State private var libraryToRemove: LunaLibraryStore.Library?
+    @State private var libraryImportError: String?
 
     var body: some View {
         TabView {
@@ -43,6 +48,7 @@ struct SettingsView: View {
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
         .task {
+            libraryStore.migrateLegacyPathIfNeeded()
             await packManager.refreshAllStatuses()
             // 키가 없는 BYOK 엔진이 선택되어 있으면 Apple로 되돌린다
             let selected = settings.translationProviderName
@@ -206,6 +212,7 @@ struct SettingsView: View {
             Section(L10n.appSection) {
                 Picker(L10n.appLanguageLabel, selection: $settings.appLanguage) {
                     Text("简体中文").tag("zh-Hans")
+                    Text("繁體中文").tag("zh-Hant")
                     Text("English").tag("en")
                 }
                 .pickerStyle(.menu)
@@ -236,6 +243,16 @@ struct SettingsView: View {
                     }
                 }
                 .help(L10n.showMenuBarIconHelp)
+
+                Toggle(isOn: $showHitRateInMenuBar) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.showHitRateInMenuBar)
+                        Text(L10n.showHitRateInMenuBarDesc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!showMenuBarIcon)
 
                 // macOS 26부터 시스템 설정에서 앱별로 메뉴바 아이콘을 끌 수 있다.
                 // 앱은 그 상태를 알 수 없으므로(메뉴바 항목 창을 제어 센터가 소유) 바로가기만 둔다.
@@ -269,27 +286,72 @@ struct SettingsView: View {
 
     private var advancedTab: some View {
         Form {
-            Section("Luna 预翻译 · 实时字幕") {
-                Toggle("使用 Luna SQLite 译文库（不用 AI 机翻）", isOn: $settings.useLunaPretranslation)
-                HStack {
-                    Text(settings.lunaDatabasePath.isEmpty ? "未选择数据库" : URL(fileURLWithPath: settings.lunaDatabasePath).lastPathComponent)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button("选择 .sqlite…") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseFiles = true
-                        panel.canChooseDirectories = false
-                        panel.allowsMultipleSelection = false
-                        panel.message = "选择 LunaTranslator 的预翻译 SQLite 数据库"
-                        if panel.runModal() == .OK, let url = panel.url {
-                            settings.lunaDatabasePath = url.path
+            Section(L10n.lunaLibrarySection) {
+                Toggle(L10n.lunaUseToggle, isOn: $settings.useLunaPretranslation)
+                if libraryStore.libraries.isEmpty {
+                    Text(L10n.lunaLibraryEmpty)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(libraryStore.libraries) { library in
+                    HStack {
+                        Button {
+                            libraryStore.activate(library)
+                        } label: {
+                            Image(systemName: libraryStore.activeID == library.id ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(libraryStore.activeID == library.id ? Color.accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.lunaLibraryUse)
+                        Text(library.name)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button(L10n.lunaLibraryRemove) {
+                            libraryToRemove = library
                         }
                     }
                 }
-                Text("只作用于实时翻译（测试版）。无匹配时显示原文，不会偷偷改用机器翻译。")
+                HStack {
+                    if !libraryStore.canImport {
+                        Text(L10n.lunaLibraryLimitNote(LunaLibraryStore.maxCount))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(L10n.lunaLibraryImport) {
+                        importLunaLibrary()
+                    }
+                    .disabled(!libraryStore.canImport)
+                }
+                Text(L10n.lunaLibraryHelp)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle(isOn: $lunaLookAlike) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.lunaLookAlikeToggle)
+                        Text(L10n.lunaLookAlikeDesc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .alert(L10n.lunaLibraryRemoveTitle, isPresented: Binding(
+                get: { libraryToRemove != nil },
+                set: { if !$0 { libraryToRemove = nil } }
+            ), presenting: libraryToRemove) { library in
+                Button(L10n.lunaLibraryRemove, role: .destructive) {
+                    libraryStore.remove(library)
+                }
+            } message: { library in
+                Text(L10n.lunaLibraryRemoveMessage(library.name))
+            }
+            .alert(L10n.lunaLibraryImportFailed, isPresented: Binding(
+                get: { libraryImportError != nil },
+                set: { if !$0 { libraryImportError = nil } }
+            )) {
+                Button("OK") {}
+            } message: {
+                Text(libraryImportError ?? "")
             }
             Section(L10n.popupSection) {
                 Stepper(value: $settings.popupFontSize, in: 11...20, step: 1) {
@@ -311,6 +373,20 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private func importLunaLibrary() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = L10n.lunaLibraryImportPanel
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try libraryStore.importDatabase(from: url)
+        } catch {
+            libraryImportError = error.errorDescription
+        }
+    }
 
     /// 끌 때는 바로 숨기지 않고 확인창을 띄운다 — 되돌아오는 길을 알려줄 유일한 순간이다
     private var menuBarIconBinding: Binding<Bool> {
