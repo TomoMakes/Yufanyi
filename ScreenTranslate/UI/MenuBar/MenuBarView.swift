@@ -2,9 +2,14 @@ import KeyboardShortcuts
 import SwiftUI
 
 struct MenuBarView: View {
+    @AppStorage(LunaMissRecorder.enabledKey) private var recordMisses = false
+
     var body: some View {
         if AppOrchestrator.shared.liveHitStats?.showsLowRateWarning == true {
             Text(L10n.hitRateLowWarning)
+            if !recordMisses {
+                Button(L10n.missRecordMenuEnable) { recordMisses = true }
+            }
             Divider()
         }
 
@@ -13,7 +18,18 @@ struct MenuBarView: View {
         }
         .globalKeyboardShortcut(.liveTranslate)
 
+        Button(L10n.settingsMenu) {
+            AppOrchestrator.shared.showSettings()
+        }
+        .keyboardShortcut(",", modifiers: .command)
+
         Divider()
+
+        if recordMisses {
+            Button(L10n.feedbackCopy) {
+                AppOrchestrator.shared.copyLunaFeedback()
+            }
+        }
 
         Button(L10n.contactAuthor) {
             AppOrchestrator.shared.showContact()
@@ -22,11 +38,6 @@ struct MenuBarView: View {
         Button(L10n.aboutApp) {
             AppOrchestrator.shared.showAbout()
         }
-
-        Button(L10n.settingsMenu) {
-            AppOrchestrator.shared.showSettings()
-        }
-        .keyboardShortcut(",", modifiers: .command)
 
         Divider()
 

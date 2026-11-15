@@ -20,6 +20,10 @@ final class LiveTranslationSession {
         var interval: Duration = .milliseconds(333)
         /// 字刚变、还没定下来时的间隔：第二次确认来得快，AUTO 下停留很短的句子也来得及出字幕
         var quickInterval: Duration = .milliseconds(120)
+        /// 自动保存未命中画面（只在用预翻译库时给）；开关由记录器自己现查
+        var missRecorder: LunaMissRecording?
+        /// 预翻译没命中时，把这一帧换几种处理再认（LiveImageVariants）；整句对上库才采用。空 = 不做
+        var rescueVariants: [LiveImageVariants.Maker] = []
     }
 
     enum Display: Equatable {
@@ -43,6 +47,10 @@ final class LiveTranslationSession {
 
     /// 画面没变时最多重新识别几次。库里本来没有的句子，重认几次还是同样的字，就不再耗电重认。
     static let maxUnchangedRereads = 3
+    /// 重认读出的字和上一次不一样，说明字还在淡入、打出，次数重新数；一屏里这样重数最多到这么多次。
+    /// 2026-11-14 Money Parasite：3 次额度在字显示完之前用完，定格在半截的读法上
+    /// （存下来的画面是干净的，重放 129 张里有 18 张原样就能命中）。
+    static let maxScreenRereads = 12
 
     /// 一次识别的来历：第几次变化的文字、是不是画面没变时的重新识别
     struct ReadInfo: Equatable {
@@ -80,6 +88,14 @@ final class LiveTranslationSession {
     @ObservationIgnored private var pendingText: String?
     /// 等着翻译的那句来自哪一次识别
     @ObservationIgnored private var pendingRead = ReadInfo(serial: 0, isReread: false)
+    /// 等着翻译的那句是从哪一帧画面认出来的（存未命中画面用）
+    @ObservationIgnored private var pendingFrame: CGImage?
+    /// 画面每变一次加一（重认不加）：判断两次结果是不是同一屏
+    @ObservationIgnored private var screenSerial = 0
+    @ObservationIgnored private var pendingScreen = 0
+    /// 当前这一屏的未命中先拿在手里：同一屏重认命中了就丢掉，重认还没中就换成新的一帧；
+    /// 换屏、字幕消失、停止时才真正存下来，一句只存一次。
+    @ObservationIgnored private var heldMiss: (miss: LunaMiss, screen: Int)?
     /// 识别出的文字每变一次加一；翻译回来时据此判断它还是不是画面上最新的那句
     @ObservationIgnored private var readSerial = 0
     /// 最近识别的文字是否已经定下来：出过命中的字幕，或者画面里没有字。
@@ -88,6 +104,12 @@ final class LiveTranslationSession {
     @ObservationIgnored private var lastReadSettled = false
     /// 画面没变却因为没定下来而重新识别的次数；画面一变就清零
     @ObservationIgnored private var unchangedRereads = 0
+    /// 这一屏总共重认了几次（含读法变了重新数的）；画面一变就清零
+    @ObservationIgnored private var screenRereads = 0
+    /// 上一次记进命中统计的是哪一屏
+    @ObservationIgnored private var lastStatsScreen: Int?
+    /// 各种图片处理救回过几句：救得多的先试
+    @ObservationIgnored private var rescueWins: [Int] = []
     @ObservationIgnored private var hasShownSubtitle = false
     @ObservationIgnored private var loopTask: Task<Void, Never>?
     @ObservationIgnored private var translationTask: Task<Void, Never>?
@@ -114,6 +136,11 @@ final class LiveTranslationSession {
         lastAlternates = [:]
         lastReadSettled = false
         unchangedRereads = 0
+        screenRereads = 0
+        lastStatsScreen = nil
+        rescueWins = Array(repeating: 0, count: dependencies.rescueVariants.count)
+        heldMiss = nil
+        pendingFrame = nil
         hitStats = LunaHitStats()
         onHitStatsChange?(hitStats)
         isRunning = true
@@ -138,6 +165,8 @@ final class LiveTranslationSession {
         loopTask = nil
         cancelTranslation()
         pendingText = nil
+        pendingFrame = nil
+        saveHeldMiss()
         (dependencies.translator as? LunaPretranslationProvider)?.resetContext()
         setDisplay(.hidden)
         onStop?(reason)
@@ -167,9 +196,13 @@ final class LiveTranslationSession {
             cancelTranslation()
             pendingText = subtitle
             pendingRead = ReadInfo(serial: readSerial, isReread: isReread)
+            pendingFrame = image
+            pendingScreen = screenSerial
         case .clear:
             cancelTranslation()
             pendingText = nil
+            pendingFrame = nil
+            saveHeldMiss()
             if hasShownSubtitle { setDisplay(.hidden) }
         case nil:
             break
@@ -203,9 +236,12 @@ final class LiveTranslationSession {
                 return (lastRecognized, false)
             }
             unchangedRereads += 1
+            screenRereads += 1
             isReread = true
         } else {
             unchangedRereads = 0
+            screenRereads = 0
+            screenSerial += 1
         }
         let text: String
         do {
@@ -223,6 +259,8 @@ final class LiveTranslationSession {
         if text != lastRecognized {
             readSerial += 1
             lastReadSettled = text.isEmpty
+            // 画面看着没变、读出来的字却变了：还没显示完，接着认
+            if isReread, screenRereads < Self.maxScreenRereads { unchangedRereads = 0 }
         }
         lastRecognized = text
         return (text, isReread)
@@ -234,12 +272,18 @@ final class LiveTranslationSession {
         guard !dependencies.isTranslatorBusy() else { return }
         pendingText = nil
         let read = pendingRead
+        let frame = pendingFrame
+        let screen = pendingScreen
+        pendingFrame = nil
         let token = UUID()
         translationToken = token
         let (source, target) = languages()
         let translator = dependencies.translator
         let alternates = lastAlternates
         let checkReadiness = dependencies.checkReadiness
+        let ocr = dependencies.ocr
+        let variants = dependencies.rescueVariants
+        let order = variants.indices.sorted { rescueWins[$0] > rescueWins[$1] }
         translationTask = Task { [weak self] in
             do {
                 // 원문을 지정했으면 시작할 때 언어팩을 이미 확인했다
@@ -250,43 +294,95 @@ final class LiveTranslationSession {
                     case .unsupported: throw TranslationError.languageNotSupported
                     }
                 }
-                let translated: String
+                var translated: String
                 if let luna = translator as? LunaPretranslationProvider {
                     translated = try luna.translate(text: text, lineAlternates: alternates)
+                    // 没命中：同一帧换一种处理再认，整句对上库才采用
+                    if let frame, translated.isEmpty || translated.contains(LunaHitStats.missMarker) {
+                        for index in order {
+                            guard !Task.isCancelled else { break }
+                            guard let variant = variants[index](frame),
+                                  let reading = try? await ocr.recognize(image: variant) else { continue }
+                            let rescued = try luna.translate(text: reading.dialogueText,
+                                                             lineAlternates: reading.dialogueAlternates, isRescue: true)
+                            if !rescued.isEmpty, !rescued.contains(LunaHitStats.missMarker) {
+                                translated = rescued
+                                self?.noteRescue(index)
+                                break
+                            }
+                        }
+                    }
                 } else {
                     translated = try await translator.translate(text: text, from: source, to: target)
                 }
-                self?.finishTranslation(token, text: text, read: read, result: .success(translated))
+                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen, alternates: alternates, result: .success(translated))
             } catch {
-                self?.finishTranslation(token, text: text, read: read, result: .failure(error))
+                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen, alternates: alternates, result: .failure(error))
             }
         }
     }
 
-    private func finishTranslation(_ token: UUID, text: String, read: ReadInfo, result: Result<String, Error>) {
+    private func finishTranslation(_ token: UUID, text: String, read: ReadInfo, frame: CGImage?, screen: Int,
+                                   alternates: [String: [String]], result: Result<String, Error>) {
         guard token == translationToken else { return }  // 새 자막에 밀린 옛 결과
         translationTask = nil
         guard isRunning else { return }
         switch result {
         case .success(let translated):
+            // 预翻译返回空：画面上没有日文（只有符号的句子被读成字母、模拟器的浮条、菜单外的画面），
+            // 没东西可翻，不出字幕、不算未命中、不存。
+            if translated.isEmpty, dependencies.translator is LunaPretranslationProvider {
+                if read.serial == readSerial { lastReadSettled = true }
+                if let held = heldMiss, held.screen != screen { saveHeldMiss() }
+                if hasShownSubtitle { setDisplay(.hidden) }
+                return
+            }
             hasShownSubtitle = true
             translationCount += 1
             let missed = translated.contains(LunaHitStats.missMarker)
             // 画面上还是这句：命中就定下来，不再重认；没命中留着，画面没变也再认几次
             if read.serial == readSerial { lastReadSettled = !missed }
-            if dependencies.translator is LunaPretranslationProvider,
-               hitStats.record(source: text, output: translated, correctsLastMiss: read.isReread) {
-                onHitStatsChange?(hitStats)
+            if dependencies.missRecorder != nil {
+                // 换了一屏：上一句已经过去，它的未命中现在存。还是同一屏（重认）：只留最后的结果。
+                // 字还在一个个打出来时，没打完的半句被后面更长的那句接上，也不单独存。
+                if let held = heldMiss, held.screen != screen, !Self.extends(held.miss.text, with: text) { saveHeldMiss() }
+                heldMiss = missed
+                    ? (LunaMiss(image: frame, text: text, alternates: alternates, output: translated), screen) : nil
+            }
+            if dependencies.translator is LunaPretranslationProvider {
+                // 只有还是同一屏的重认，才撤掉上一次记的未命中；换了一屏就是另一句台词
+                // （以前只看「是不是重认」，新的一句靠第二帧确认时会把上一句的未命中错撤掉）。
+                let sameScreen = read.isReread && lastStatsScreen == screen
+                if hitStats.record(source: text, output: translated, correctsLastMiss: sameScreen) {
+                    lastStatsScreen = screen
+                    onHitStatsChange?(hitStats)
+                }
             }
             setDisplay(.subtitle(translated))
         case .failure(let error):
             if let translationError = error as? TranslationError, case .superseded = translationError {
-                if pendingText == nil { pendingText = text; pendingRead = read }  // 다른 기능에 밀림 — 다음 틱에 다시
+                if pendingText == nil { pendingText = text; pendingRead = read; pendingFrame = frame; pendingScreen = screen }  // 다른 기능에 밀림 — 다음 틱에 다시
             } else if !(error is CancellationError) {
                 // 같은 자막은 안정화기가 다시 내보내지 않으므로 재시도하지 않는다
                 setDisplay(.message(error.localizedDescription))
             }
         }
+    }
+
+    private func noteRescue(_ index: Int) {
+        if rescueWins.indices.contains(index) { rescueWins[index] += 1 }
+    }
+
+    private func saveHeldMiss() {
+        guard let held = heldMiss else { return }
+        heldMiss = nil
+        dependencies.missRecorder?.record(held.miss)
+    }
+
+    /// `longer` 是不是 `shorter` 接着往下打出来的（忽略空白）
+    private static func extends(_ shorter: String, with longer: String) -> Bool {
+        let a = shorter.filter { !$0.isWhitespace }, b = longer.filter { !$0.isWhitespace }
+        return !a.isEmpty && b.count > a.count && b.hasPrefix(a)
     }
 
     private func cancelTranslation() {

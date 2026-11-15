@@ -9,6 +9,10 @@ nonisolated enum L10n {
     static let noTextFound = "no text", unsupportedLanguagePair = "unsupported"
     static let apiKeyInvalid = "key", autoDetectFailedMessage = "detect", translationSuperseded = "superseded"
     static let liveSourcePackMissing = "pack", liveWaitingForText = "waiting", noSelectedText = "no selection"
+    static let lunaFileMissing = "missing", lunaNotStandard = "ns", lunaNoRows = "nr"
+    static let missFolderName = "预翻译问题反馈"
+    static func hitRateSummary(_ p: Int) -> String { "\(p)%" }
+    static func lunaOpenFailed(_ text: String) -> String { text }
     static func translationFailed(_ text: String) -> String { text }
     static func ocrFailed(_ text: String) -> String { text }
 }

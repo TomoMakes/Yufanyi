@@ -592,6 +592,9 @@ final class AppOrchestrator {
     private(set) var isLiveTranslating = false
     /// 本次实时翻译的预翻译命中统计，菜单栏显示用；没在实时翻译时为 nil
     private(set) var liveHitStats: LunaHitStats?
+    /// 最近一次实时翻译的命中统计和用的库（问题说明里写命中率；停止后也留着）
+    @ObservationIgnored private var feedbackStats: (libraryID: String, stats: LunaHitStats)?
+    @ObservationIgnored private var liveMissRecorder: LunaMissRecorder?
     @ObservationIgnored private var liveSession: LiveTranslationSession?
     @ObservationIgnored private var liveRegionWindow: LiveRegionWindow?
     @ObservationIgnored private var liveSubtitleBar: LiveSubtitleBar?
@@ -674,6 +677,10 @@ final class AppOrchestrator {
         let regionWindow = LiveRegionWindow(region: rect, screen: screen)
         let bar = LiveSubtitleBar()
         let scale = screen.backingScaleFactor
+        let useLuna = AppSettings.shared.useLunaPretranslation
+        let library = LunaLibraryStore.shared.activeLibrary
+        let missRecorder = useLuna ? library.map { LunaMissRecorder(library: $0.name, appVersion: AppVersion.version) } : nil
+        liveMissRecorder = missRecorder
         let session = LiveTranslationSession(
             dependencies: .init(
                 frameSource: liveCapturer,
@@ -689,7 +696,9 @@ final class AppOrchestrator {
                 checkReadiness: { text, target in
                     if AppSettings.shared.useLunaPretranslation { return .ready }
                     return await LiveTranslatePreflight.readiness(for: text, to: target)
-                }
+                },
+                missRecorder: missRecorder,
+                rescueVariants: useLuna ? LiveImageVariants.all : []
             ),
             region: { [weak regionWindow] in
                 regionWindow.map { LiveRegion(rect: $0.region, displayID: displayID, scale: scale) }
@@ -698,7 +707,10 @@ final class AppOrchestrator {
             preprocess: { AppSettings.shared.ocrTextPreprocessing }
         )
         session.onDisplayChange = { [weak self] display in self?.refreshLiveSubtitleBar(display) }
-        session.onHitStatsChange = { [weak self] stats in self?.liveHitStats = stats }
+        session.onHitStatsChange = { [weak self] stats in
+            self?.liveHitStats = stats
+            if useLuna, let library { self?.feedbackStats = (library.id, stats) }
+        }
         session.onStop = { [weak self] reason in self?.liveSessionDidStop(reason) }
         regionWindow.onStop = { [weak self] in self?.stopLiveTranslation(.user) }
         regionWindow.onShowFullText = { [weak bar] in bar?.showFullText() }
@@ -715,6 +727,38 @@ final class AppOrchestrator {
         regionWindow.show()
         session.start()
         TelemetryDeck.signal("liveTranslateStarted")
+    }
+
+    // MARK: - 问题反馈（未命中记录）
+
+    /// 把问题说明放进剪贴板：库名、版本、命中率、最近漏掉的句子。
+    func copyLunaFeedback() {
+        liveMissRecorder?.flush()
+        let library = LunaLibraryStore.shared.activeLibrary
+        let entries = library.map { LunaMissRecorder.entries(in: LunaMissRecorder.folder(for: $0.name)) } ?? []
+        let stats = library.flatMap { feedbackStats?.libraryID == $0.id ? feedbackStats?.stats : nil }
+        let text = LunaFeedbackReport.text(
+            library: library?.name,
+            rowCount: library.flatMap { LunaLibraryStore.rowCount(at: LunaLibraryStore.shared.path(of: $0)) },
+            appVersion: AppVersion.version,
+            systemVersion: LunaFeedbackReport.systemVersion,
+            stats: stats,
+            entries: entries
+        )
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// 打开当前库的未命中文件夹；还没存过就打开上一层（没有就先建）
+    func openMissFolder() {
+        let root = LunaMissRecorder.defaultRoot
+        let folder = LunaLibraryStore.shared.activeLibrary.map { LunaMissRecorder.folder(for: $0.name) }
+        if let folder, FileManager.default.fileExists(atPath: folder.path) {
+            NSWorkspace.shared.open(folder)
+            return
+        }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(root)
     }
 
     private func refreshLiveSubtitleBar(_ display: LiveTranslationSession.Display) {
@@ -734,6 +778,7 @@ final class AppOrchestrator {
         liveSession = nil
         liveStartedAt = nil
         liveHitStats = nil
+        liveMissRecorder = nil
         isLiveTranslating = false
         TelemetryDeck.signal("liveTranslateStopped", parameters: [
             "reason": LiveTelemetry.reasonName(reason),

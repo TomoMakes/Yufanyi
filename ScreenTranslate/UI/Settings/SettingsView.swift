@@ -33,6 +33,8 @@ struct SettingsView: View {
     @AppStorage(AppSettings.showMenuBarIconKey) private var showMenuBarIcon = true
     @AppStorage(AppSettings.showHitRateInMenuBarKey) private var showHitRateInMenuBar = true
     @AppStorage(AppSettings.lunaLookAlikeKey) private var lunaLookAlike = false
+    @AppStorage(LunaMissRecorder.enabledKey) private var recordLunaMisses = false
+    @State private var feedbackCopied = false
     @State private var showHideIconConfirm = false
     @State private var libraryStore = LunaLibraryStore.shared
     @State private var libraryToRemove: LunaLibraryStore.Library?
@@ -334,6 +336,31 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Toggle(isOn: $recordLunaMisses) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.missRecordToggle)
+                        Text(L10n.missRecordDesc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                HStack {
+                    Button(feedbackCopied ? L10n.feedbackCopied : L10n.feedbackCopy) {
+                        AppOrchestrator.shared.copyLunaFeedback()
+                        feedbackCopied = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            feedbackCopied = false
+                        }
+                    }
+                    Button(L10n.feedbackOpenFolder) {
+                        AppOrchestrator.shared.openMissFolder()
+                    }
+                    Spacer()
+                }
+                Text(L10n.feedbackHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .alert(L10n.lunaLibraryRemoveTitle, isPresented: Binding(
                 get: { libraryToRemove != nil },

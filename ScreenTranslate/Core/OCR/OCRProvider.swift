@@ -70,7 +70,30 @@ nonisolated struct OCRResult: Sendable {
 
     /// Blocks Luna reads: noise removed, then one row split by Vision glued back.
     static func dialogueBlocks(_ blocks: [OCRTextBlock]) -> [OCRTextBlock] {
-        mergedSameRowBlocks(cleanedDialogueBlocks(blocks))
+        withoutNestedDuplicates(mergedSameRowBlocks(cleanedDialogueBlocks(blocks)))
+    }
+
+    /// Money Parasite 2026-11-14: a wide gap inside one line (（……あれ？　もしかして…）) made
+    /// Vision return the first part twice - once alone, once inside the whole line - and the
+    /// text became （……あれ？ （……あれ？もしかして…）. Drop a block that lies inside another
+    /// block of the same row when its letters are also contained in that block's text.
+    static func withoutNestedDuplicates(_ blocks: [OCRTextBlock]) -> [OCRTextBlock] {
+        func letters(_ text: String) -> String {
+            String(String.UnicodeScalarView(text.unicodeScalars.filter { CharacterSet.letters.contains($0) }))
+        }
+        let nested = Set(blocks.indices.filter { i in
+            let inner = blocks[i].boundingBox, innerLetters = letters(blocks[i].text)
+            guard !innerLetters.isEmpty, isHorizontal(inner) else { return false }
+            return blocks.indices.contains { j in
+                guard j != i else { return false }
+                let outer = blocks[j].boundingBox, slack = min(inner.height, outer.height) * 0.3
+                return outer.width > inner.width * 1.2
+                    && abs(outer.midY - inner.midY) < min(inner.height, outer.height) * 0.5
+                    && inner.minX >= outer.minX - slack && inner.maxX <= outer.maxX + slack
+                    && letters(blocks[j].text).contains(innerLetters)
+            }
+        })
+        return nested.isEmpty ? blocks : blocks.indices.filter { !nested.contains($0) }.map { blocks[$0] }
     }
 
     private static let joinDashes = Set("―─—–-")

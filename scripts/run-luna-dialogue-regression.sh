@@ -15,6 +15,9 @@ xcrun swiftc -swift-version 5 -default-isolation MainActor -parse-as-library \
   "$ROOT/ScreenTranslate/Core/Live/LiveTextStabilizer.swift" \
   "$ROOT/ScreenTranslate/Core/Live/LiveFrameSource.swift" \
   "$ROOT/ScreenTranslate/Core/Live/LiveOCRPolicy.swift" \
+  "$ROOT/ScreenTranslate/Core/Live/LiveImageVariants.swift" \
+  "$ROOT/ScreenTranslate/Core/Live/LunaHitStats.swift" \
+  "$ROOT/ScreenTranslate/Core/Live/LunaMissRecorder.swift" \
   "$ROOT/ScreenTranslate/Core/Live/FrameFingerprint.swift" \
   -o "$SCRATCH/regression"
 "$SCRATCH/regression" "$@"

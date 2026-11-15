@@ -20,10 +20,12 @@ import Testing
         var region = LiveRegion(rect: CGRect(x: 0, y: 0, width: 96, height: 24), displayID: 1, scale: 1)
         private(set) var stopReasons: [LiveTranslationSession.StopReason] = []
         private(set) var sleeps: [Duration] = []
+        let misses = CollectingMissRecorder()
         private(set) var session: LiveTranslationSession!
 
         /// 기본 인자는 격리되지 않은 문맥에서 평가되므로 MainActor 가짜는 안에서 만든다
-        init(ocr results: [String], translator: TranslationProvider? = nil) {
+        init(ocr results: [String], translator: TranslationProvider? = nil,
+             rescueVariants: [LiveImageVariants.Maker] = []) {
             ocr = ScriptedOCRProvider(results)
             self.translator = translator ?? RecordingTranslationProvider()
             session = LiveTranslationSession(
@@ -36,7 +38,9 @@ import Testing
                         self.readinessChecks += 1
                         return self.readiness
                     },
-                    sleep: { @MainActor [weak self] duration in self?.sleeps.append(duration) }
+                    sleep: { @MainActor [weak self] duration in self?.sleeps.append(duration) },
+                    missRecorder: misses,
+                    rescueVariants: rescueVariants
                 ),
                 region: { [unowned self] in self.region },
                 languages: { [unowned self] in (self.sourceLanguage, Locale.Language(identifier: "ko")) },
@@ -110,6 +114,65 @@ import Testing
         #expect(recorder.requests == ["化科", "仁科"])
         #expect(h.ocr.callCount == 4)
         h.session.stop(.user)
+        // 同一句重认后命中了：不算未命中，不存画面
+        #expect(h.misses.misses.isEmpty)
+    }
+
+    @Test("a line that stays missed is saved once, when the next line arrives")
+    func finalMissIsSavedOnce() async {
+        let recorder = RecordingTranslationProvider()
+        // 同一句重认出的字没变，不会再查第二次库：第一句只有一次结果
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n法えて"), .success("下一句译文")]
+        let h = Harness(ocr: ["法えて", "法えて", "法えて", "法えて", "次の行", "次の行"], translator: recorder)
+        h.session.start()
+        let first = TestImages.block(at: 0)
+        for _ in 0..<4 { await h.feed(first) }
+        await h.settle { recorder.requests.count >= 1 }
+        // 还停在这一句：先拿在手里，不存
+        #expect(h.misses.misses.isEmpty)
+        let second = TestImages.block(at: 60)
+        await h.feed(second)
+        await h.feed(second)
+        await h.settle { h.session.display == .subtitle("下一句译文") }
+        #expect(h.misses.misses.map(\.text) == ["法えて"])
+        #expect(h.misses.misses.first?.image != nil)
+        #expect(h.misses.misses.first?.output.contains(LunaHitStats.missMarker) == true)
+        h.session.stop(.user)
+        #expect(h.misses.misses.count == 1)
+    }
+
+    @Test("a half-typed line that the full line continues is not saved on its own")
+    func typedPrefixIsNotSaved() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n（こんな"), .success("\(LunaHitStats.missMarker)\n（こんな機会）")]
+        let h = Harness(ocr: ["（こんな", "（こんな", "（こんな機会）", "（こんな機会）"], translator: recorder)
+        h.session.start()
+        let first = TestImages.block(at: 0)
+        await h.feed(first)
+        await h.feed(first)
+        await h.settle { recorder.requests.count == 1 }
+        let second = TestImages.block(at: 60)
+        await h.feed(second)
+        await h.feed(second)
+        await h.settle { recorder.requests.count == 2 }
+        await h.settle { h.session.display == .subtitle("\(LunaHitStats.missMarker)\n（こんな機会）") }
+        h.session.stop(.user)
+        #expect(h.misses.misses.map(\.text) == ["（こんな機会）"])
+    }
+
+    @Test("stopping saves the line that is still missed")
+    func stopSavesHeldMiss() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n法えて")]
+        let h = Harness(ocr: ["法えて"], translator: recorder)
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { h.session.display == .subtitle("\(LunaHitStats.missMarker)\n法えて") }
+        #expect(h.misses.misses.isEmpty)
+        h.session.stop(.user)
+        #expect(h.misses.misses.map(\.text) == ["法えて"])
     }
 
     @Test("re-reading an unchanged screen stops after the limit")
@@ -331,6 +394,110 @@ import Testing
         h.region = moved
         await h.feed(TestImages.block(at: 20))
         #expect(h.source.requestedRegions.last == moved)
+        h.session.stop(.user)
+    }
+
+    // MARK: - 2026-11-14 换图重认、无日文、重认次数、命中统计
+
+    private func luna(_ rows: [(String, String)]) throws -> LunaPretranslationProvider {
+        LunaPretranslationProvider(path: try LunaTestDatabase.make(rows))
+    }
+
+    @Test("a missed line is read again from a treated copy of the same frame, and a full match is used")
+    func rescueVariantTurnsAMissIntoAHit() async throws {
+        // 前两次读原图（读歪），第三次是换了处理的那一帧（读对）
+        let h = Harness(ocr: ["「そう、完気が出たみたいで良かった」", "「そう、完気が出たみたいで良かった」",
+                              "「そう、元気が出たみたいで良かった」"],
+                        translator: try luna([("「そう、元気が出たみたいで良かった」", "译文")]),
+                        rescueVariants: [{ $0 }])
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { h.session.display == .subtitle("译文") }
+        #expect(h.session.display == .subtitle("译文"))
+        #expect(h.ocr.callCount == 3)
+        #expect(h.session.hitStats.hits == 1)
+        #expect(h.session.hitStats.misses == 0)
+        // 已经命中：画面没变也不再重认
+        await h.feed(frame)
+        #expect(h.ocr.callCount == 3)
+        h.session.stop(.user)
+        #expect(h.misses.misses.isEmpty)
+    }
+
+    @Test("a treated copy that still misses leaves the line missed")
+    func rescueThatMissesKeepsTheMiss() async throws {
+        let h = Harness(ocr: ["「知らない台詞です」"],
+                        translator: try luna([("「そう、元気が出たみたいで良かった」", "译文")]),
+                        rescueVariants: [{ $0 }, { _ in nil }])
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        await h.feed(frame)
+        await h.feed(frame)
+        await h.settle { h.session.hitStats.total == 1 }
+        #expect(h.session.display == .subtitle("\(LunaHitStats.missMarker)\n「知らない台詞です」"))
+        #expect(h.session.hitStats.misses == 1)
+        h.session.stop(.user)
+        #expect(h.misses.misses.map(\.text) == ["「知らない台詞です」"])
+    }
+
+    @Test("text without any Japanese hides the bar and is neither counted nor saved")
+    func foreignTextIsIgnored() async throws {
+        let h = Harness(ocr: ["「はい」", "「はい」", "TLI", "TLI"], translator: try luna([("「はい」", "是的")]))
+        h.session.start()
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        await h.settle { h.session.display == .subtitle("是的") }
+        await h.feed(TestImages.block(at: 60))
+        await h.feed(TestImages.block(at: 60))
+        await h.settle { h.session.display == .hidden }
+        #expect(h.session.display == .hidden)
+        #expect(h.session.hitStats.total == 1)
+        h.session.stop(.user)
+        #expect(h.misses.misses.isEmpty)
+    }
+
+    @Test("re-reading goes on while each reading differs from the last one")
+    func rereadsContinueWhileTheTextKeepsChanging() async {
+        let recorder = RecordingTranslationProvider()
+        recorder.outcomes = [.success("\(LunaHitStats.missMarker)\n最後")]
+        // 字还在淡入：同一块画面连着读出五种不同的字，最后才稳定
+        let h = Harness(ocr: ["読み1", "読み2", "読み3", "読み4", "読み5", "最後"], translator: recorder)
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        for _ in 0..<12 { await h.feed(frame) }
+        await h.settle { recorder.requests == ["最後"] }
+        #expect(recorder.requests == ["最後"])
+        // 5 次读法在变 + 稳定后的一次确认 + 没命中的 3 次重认
+        #expect(h.ocr.callCount == 6 + LiveTranslationSession.maxUnchangedRereads)
+        h.session.stop(.user)
+    }
+
+    @Test("a screen whose reading never settles stops being re-read at the screen limit")
+    func rereadsOfOneScreenAreCapped() async {
+        let h = Harness(ocr: (0..<60).map { "読み\($0)" })
+        h.session.start()
+        let frame = TestImages.block(at: 0)
+        for _ in 0..<40 { await h.feed(frame) }
+        #expect(h.ocr.callCount == 1 + LiveTranslationSession.maxScreenRereads + LiveTranslationSession.maxUnchangedRereads - 1)
+        h.session.stop(.user)
+    }
+
+    @Test("a new line confirmed by its second frame does not cancel the previous line's miss")
+    func aNewLineKeepsThePreviousMissCounted() async throws {
+        let h = Harness(ocr: ["「知らない台詞です」", "「知らない台詞です」", "「はい」", "「はい」"],
+                        translator: try luna([("「はい」", "是的"), ("「長い台詞がここにあります」", "长")]))
+        h.session.start()
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        await h.settle { h.session.hitStats.total == 1 }
+        #expect(h.session.hitStats.misses == 1)
+        await h.feed(TestImages.block(at: 60))
+        await h.feed(TestImages.block(at: 60))
+        await h.settle { h.session.display == .subtitle("是的") }
+        #expect(h.session.hitStats.hits == 1)
+        #expect(h.session.hitStats.misses == 1)
         h.session.stop(.user)
     }
 }

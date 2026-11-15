@@ -74,4 +74,62 @@ import Testing
         let output = try provider.translate(text: "えっうそ。", lineAlternates: [:])
         #expect(output.hasPrefix("［预翻译未命中］"))
     }
+
+    // MARK: 2026-11-15 点数读错，同时破折号整段丢（色ドリ撫子 库 52345）
+
+    @Test func lostDashRunWithMiscountedDotsStillMatches() throws {
+        let path = try makeDatabase([("あの女性と僕は……───他人みたいなものだ", "那位女性和我……───就像陌生人一样")])
+        let provider = LunaPretranslationProvider(path: path)
+        // 实机读法：六个点读成七个，「───」整段没读出来
+        #expect(try provider.translate(text: "あの女性と僕は....... 他人みたいなものだ", lineAlternates: [:])
+            == "那位女性和我……───就像陌生人一样")
+        #expect(try provider.translate(text: "あの女性と僕は・・・・・・・他人みたいなものだ", lineAlternates: [:])
+            == "那位女性和我……───就像陌生人一样")
+    }
+
+    @Test func miscountedDotsWithConflictingDashRecordsBlock() throws {
+        let path = try makeDatabase([
+            ("それでも私はあの人を……───信じたかった。", "即便如此我还是……───想相信那个人。"),
+            ("それでも私はあの人を…………──信じたかった。", "可我依然…………──想去相信他。"),
+        ])
+        let provider = LunaPretranslationProvider(path: path)
+        let output = try provider.translate(text: "それでも私はあの人を....... 信じたかった。", lineAlternates: [:])
+        #expect(output.hasPrefix("［预翻译未命中］"))
+    }
+
+    @Test func miscountedDotsPreferThePlainRecord() throws {
+        let path = try makeDatabase([
+            ("それでも私はあの人を……───信じたかった。", "即便如此我还是……───想相信那个人。"),
+            ("それでも私はあの人を……信じたかった。", "可我依然……想去相信他。"),
+        ])
+        let provider = LunaPretranslationProvider(path: path)
+        // 不带破折号的那条本来就在库里：点数不同也照它翻，不去猜带破折号的那条
+        #expect(try provider.translate(text: "それでも私はあの人を.......信じたかった。", lineAlternates: [:])
+            == "可我依然……想去相信他。")
+    }
+
+    @Test func shortTextWithDotsIsNotMatched() throws {
+        let path = try makeDatabase([("えっ……───うそ。", "诶……───骗人。")])
+        let provider = LunaPretranslationProvider(path: path)
+        let output = try provider.translate(text: "えっ.......うそ。", lineAlternates: [:])
+        #expect(output.hasPrefix("［预翻译未命中］"))
+    }
+
+    // MARK: 2026-11-15 省略号读成别的圆点（色ドリ撫子 库 52489）
+
+    @Test func ellipsisReadAsOtherRoundDotsStillMatches() throws {
+        let path = try makeDatabase([("「もしかして……杙梛さんも見ました？」", "「难道……杙梛先生也看到了？」")])
+        let provider = LunaPretranslationProvider(path: path)
+        for dot in ["\u{00B7}", "\u{2027}", "\u{2219}", "\u{22C5}", "\u{FF65}", "\u{30FB}"] {
+            let text = "「もしかして" + String(repeating: dot, count: 6) + "杙梛さんも見ました？」"
+            #expect(try provider.translate(text: text, lineAlternates: [:]) == "「难道……杙梛先生也看到了？」", "圆点 \(dot.unicodeScalars.first!.value)")
+        }
+    }
+
+    @Test func roundDotsDoNotHideDifferentTranslations() throws {
+        let path = try makeDatabase([("「うん……」", "嗯……"), ("「うん…………」", "不……")])
+        let provider = LunaPretranslationProvider(path: path)
+        let output = try provider.translate(text: "「うん\u{2027}\u{2027}\u{2027}」", lineAlternates: [:])
+        #expect(output.hasPrefix("［预翻译未命中］"))
+    }
 }

@@ -133,6 +133,23 @@ final class LunaLibraryStore {
         defaults.set(activeID, forKey: Self.activeKey)
     }
 
+    /// 库里有多少条（问题说明里写）；打不开时为 nil
+    nonisolated static func rowCount(at path: String) -> Int? {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db = handle else {
+            if let handle { sqlite3_close(handle) }
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM artificialtrans", -1, &statement, nil) == SQLITE_OK else {
+            sqlite3_finalize(statement)
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int64(statement, 0)) : nil
+    }
+
     /// 能打开、并且有 Luna 预翻译的 artificialtrans 表（source、machineTrans 两列）
     nonisolated static func isLunaDatabase(at path: String) -> Bool {
         var handle: OpaquePointer?

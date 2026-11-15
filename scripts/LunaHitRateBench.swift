@@ -4,6 +4,8 @@ import CoreText
 import SQLite3
 nonisolated enum L10n {
  static let noTextFound="no text", unsupportedLanguagePair="unsupported", apiKeyInvalid="key", autoDetectFailedMessage="detect", translationSuperseded="superseded"
+ static let lunaFileMissing="missing", lunaNotStandard="ns", lunaNoRows="nr"
+ static func lunaOpenFailed(_ s:String)->String{s}
  static func translationFailed(_ s:String)->String{s}
  static func ocrFailed(_ s:String)->String{s}
 }
