@@ -14,6 +14,8 @@ import Testing
         let ocr: ScriptedOCRProvider
         let translator: TranslationProvider
         var busy = false
+        var fallbackEnabled = false
+        var fallbackReadiness: LiveTranslationSession.Readiness = .ready
         var sourceLanguage: Locale.Language?
         var readiness: LiveTranslationSession.Readiness = .ready
         private(set) var readinessChecks = 0
@@ -25,9 +27,12 @@ import Testing
 
         /// 기본 인자는 격리되지 않은 문맥에서 평가되므로 MainActor 가짜는 안에서 만든다
         init(ocr results: [String], translator: TranslationProvider? = nil,
-             rescueVariants: [LiveImageVariants.Maker] = []) {
+             rescueVariants: [LiveImageVariants.Maker] = [],
+             fallbackTranslator: TranslationProvider? = nil,
+             fallbackEnabled: Bool = false) {
             ocr = ScriptedOCRProvider(results)
             self.translator = translator ?? RecordingTranslationProvider()
+            self.fallbackEnabled = fallbackEnabled
             session = LiveTranslationSession(
                 dependencies: .init(
                     frameSource: source,
@@ -40,7 +45,11 @@ import Testing
                     },
                     sleep: { @MainActor [weak self] duration in self?.sleeps.append(duration) },
                     missRecorder: misses,
-                    rescueVariants: rescueVariants
+                    rescueVariants: rescueVariants,
+                    fallbackTranslator: fallbackTranslator,
+                    fallbackEnabled: { [unowned self] in self.fallbackEnabled },
+                    isFallbackBusy: { [unowned self] in self.busy },
+                    checkFallbackReadiness: { [unowned self] _, _ in self.fallbackReadiness }
                 ),
                 region: { [unowned self] in self.region },
                 languages: { [unowned self] in (self.sourceLanguage, Locale.Language(identifier: "ko")) },
@@ -498,6 +507,75 @@ import Testing
         await h.settle { h.session.display == .subtitle("是的") }
         #expect(h.session.hitStats.hits == 1)
         #expect(h.session.hitStats.misses == 1)
+        h.session.stop(.user)
+    }
+
+    @Test("fallback translator displays marked translation on miss while preserving miss stats and recording")
+    func fallbackOnMissDisplaysMarkedTranslationAndKeepsMissRecord() async throws {
+        let fallback = RecordingTranslationProvider()
+        fallback.outcomes = [.success("「鸫，我们回去吧」")]
+        let h = Harness(
+            ocr: ["「ツグミ、さぁ帰ろう」", "「ツグミ、さぁ帰ろう」"],
+            translator: try luna([("「はい」", "是的")]),
+            fallbackTranslator: fallback,
+            fallbackEnabled: true
+        )
+        h.session.start()
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        await h.settle { h.session.hitStats.total == 1 }
+        #expect(h.session.display == .subtitle("\(L10n.lunaFallbackPrefix)\n「鸫，我们回去吧」"))
+        #expect(h.session.hitStats.misses == 1)
+        #expect(h.session.hitStats.hits == 0)
+        h.session.stop(.user)
+        #expect(h.misses.misses.count == 1)
+        #expect(h.misses.misses.first?.output.hasPrefix(LunaHitStats.missMarker) == true)
+    }
+
+    @Test("fallback stays silent and shows normal miss when pack is missing or toggle is off")
+    func fallbackFallsBackGracefullyWhenUnavailable() async throws {
+        let fallback = RecordingTranslationProvider()
+        fallback.outcomes = [.success("不会显示")]
+        let h = Harness(
+            ocr: ["「ツグミ、さぁ帰ろう」", "「ツグミ、さぁ帰ろう」"],
+            translator: try luna([("「はい」", "是的")]),
+            fallbackTranslator: fallback,
+            fallbackEnabled: true
+        )
+        h.fallbackReadiness = .needsDownload
+        h.session.start()
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        await h.settle { h.session.hitStats.total == 1 }
+        #expect(h.session.display == .subtitle("\(LunaHitStats.missMarker)\n「ツグミ、さぁ帰ろう」"))
+        #expect(fallback.requests.isEmpty)
+        h.session.stop(.user)
+    }
+
+    @Test("on AUTO a one-frame line with garbled leading dots/dash translates immediately without waiting for a repeat")
+    func autoOneFrameLeadingSymbolShortcut() async throws {
+        let translator = try luna([
+            ("「はい」", "是的"),
+            ("「……——大丈夫、悪人ではないわ」", "「……——放心吧，她不是坏人」"),
+            ("「次の行」", "「下一行」"),
+        ])
+        let h = Harness(
+            ocr: ["「はい」", "「はい」", "・・・・・・大丈夫、悪人ではないわ」", "「次の行」"],
+            translator: translator
+        )
+        h.session.start()
+        // 第一句先让数据库加载完
+        await h.feed(TestImages.block(at: 0))
+        await h.feed(TestImages.block(at: 0))
+        await h.settle { h.session.display == .subtitle("是的") }
+        // AUTO 下仅出现一帧的台词（且丢了「和——」），必须当场出译文
+        await h.feed(TestImages.block(at: 30))
+        await h.settle { h.session.display == .subtitle("「……——放心吧，她不是坏人」") }
+        #expect(h.session.display == .subtitle("「……——放心吧，她不是坏人」"))
+        // 下一帧已经切到下一句，同样单帧切走
+        await h.feed(TestImages.block(at: 60))
+        await h.settle { h.session.display == .subtitle("「下一行」") }
+        #expect(h.session.display == .subtitle("「下一行」"))
         h.session.stop(.user)
     }
 }

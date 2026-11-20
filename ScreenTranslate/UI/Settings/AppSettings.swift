@@ -259,11 +259,45 @@ final class AppSettings {
     /// 实时翻译时在菜单栏图标旁显示预翻译命中率（免费功能，默认开启）
     nonisolated static let showHitRateInMenuBarKey = "com.yufanyi.showHitRateInMenuBar"
 
+    // MARK: - 框选边框自动隐藏
+
+    /// 实时翻译时自动隐藏框选边框，鼠标靠近边缘时才显现（默认关闭）
+    nonisolated static let autoHideLiveBorderKey = "com.yufanyi.autoHideLiveBorder"
+
+    var autoHideLiveBorder: Bool {
+        get {
+            access(keyPath: \.autoHideLiveBorder)
+            return UserDefaults.standard.bool(forKey: Self.autoHideLiveBorderKey)
+        }
+        set {
+            withMutation(keyPath: \.autoHideLiveBorder) {
+                UserDefaults.standard.set(newValue, forKey: Self.autoHideLiveBorderKey)
+            }
+        }
+    }
+
     // MARK: - 形近字容错
 
     /// 预翻译匹配时把认错的形近字（仁/化、つ/っ、ー/一 等）换回来再查。
     /// 默认关闭，需在设置中手动开启（有极小概率匹配到另一句）
     nonisolated static let lunaLookAlikeKey = "com.yufanyi.lunaLookAlike"
+
+    // MARK: - 未命中机翻兜底
+
+    /// 预翻译未命中时改用本地 Apple 翻译临时显示（默认关闭，不偷偷走机翻）
+    nonisolated static let lunaFallbackTranslateKey = "com.yufanyi.lunaFallbackTranslate"
+
+    var lunaFallbackTranslate: Bool {
+        get {
+            access(keyPath: \.lunaFallbackTranslate)
+            return UserDefaults.standard.bool(forKey: Self.lunaFallbackTranslateKey)
+        }
+        set {
+            withMutation(keyPath: \.lunaFallbackTranslate) {
+                UserDefaults.standard.set(newValue, forKey: Self.lunaFallbackTranslateKey)
+            }
+        }
+    }
 
     // MARK: - Onboarding
 

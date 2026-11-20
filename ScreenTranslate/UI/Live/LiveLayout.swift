@@ -20,6 +20,10 @@ nonisolated enum LiveLayout {
             && !region.insetBy(dx: 12, dy: 12).contains(point)
     }
 
+    static func shouldShowOutline(autoHide: Bool, controlsVisible: Bool) -> Bool {
+        !autoHide || controlsVisible
+    }
+
     static func globalFrame(of rect: CGRect, screenFrame: CGRect) -> CGRect {
         CGRect(x: screenFrame.minX + rect.minX, y: screenFrame.maxY - rect.maxY,
                width: rect.width, height: rect.height)

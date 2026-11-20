@@ -16,14 +16,20 @@ final class LiveRegionWindow {
     private let outline: NSPanel
     private let toolbar: NSPanel
     private let handle: NSPanel
+    private let shouldAutoHideOutline: () -> Bool
     private var gestureStartRegion: CGRect = .zero
     private var hoverTask: Task<Void, Never>?
     private var dragging = false
     private var lastHover = Date.distantPast
 
-    init(region: CGRect, screen: NSScreen) {
+    init(
+        region: CGRect,
+        screen: NSScreen,
+        shouldAutoHideOutline: @escaping () -> Bool = { AppSettings.shared.autoHideLiveBorder }
+    ) {
         self.region = region
         self.screen = screen
+        self.shouldAutoHideOutline = shouldAutoHideOutline
         outline = Self.makePanel()
         toolbar = Self.makePanel()
         handle = Self.makePanel()
@@ -72,7 +78,7 @@ final class LiveRegionWindow {
     var regionFrame: CGRect { LiveLayout.globalFrame(of: region, screenFrame: screen.frame) }
 
     func show() {
-        outline.orderFrontRegardless()
+        updateControls()
         hoverTask?.cancel()
         hoverTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -110,6 +116,9 @@ final class LiveRegionWindow {
             || (handle.isVisible && handle.frame.insetBy(dx: -8, dy: -8).contains(mouse))
         if hovering || dragging { lastHover = Date() }
         let visible = dragging || Date().timeIntervalSince(lastHover) < 0.5
+        let outlineVisible = LiveLayout.shouldShowOutline(autoHide: shouldAutoHideOutline(), controlsVisible: visible)
+        if outlineVisible && !outline.isVisible { outline.orderFrontRegardless() }
+        else if !outlineVisible && outline.isVisible { outline.orderOut(nil) }
         for panel in [toolbar, handle] {
             if visible && !panel.isVisible { panel.orderFrontRegardless() }
             else if !visible && panel.isVisible { panel.orderOut(nil) }

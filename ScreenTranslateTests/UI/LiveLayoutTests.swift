@@ -59,4 +59,12 @@ import Testing
         let larger = LiveLayout.resized(rect, by: CGSize(width: 500, height: 0), within: screen.size)
         #expect(larger.maxX == 1440)
     }
+
+    @Test("outline visibility respects auto-hide and hover controls state")
+    func outlineVisibility() {
+        #expect(LiveLayout.shouldShowOutline(autoHide: false, controlsVisible: false) == true)
+        #expect(LiveLayout.shouldShowOutline(autoHide: false, controlsVisible: true) == true)
+        #expect(LiveLayout.shouldShowOutline(autoHide: true, controlsVisible: false) == false)
+        #expect(LiveLayout.shouldShowOutline(autoHide: true, controlsVisible: true) == true)
+    }
 }

@@ -82,7 +82,7 @@ final class L10nTests: XCTestCase {
                 ]
                 // 预翻译 for Mac 已删韩语界面（2026-11-06），之后新加的文字韩语位置直接填英文
                 let addedAfterKoreanRemoved = en.0.hasPrefix("luna") || en.0.hasPrefix("hitRate")
-                    || en.0.hasPrefix("showHitRate") || en.0.hasPrefix("aboutBasedOn") || en.0.hasPrefix("contact") || en.0.hasPrefix("aboutUpstream")
+                    || en.0.hasPrefix("showHitRate") || en.0.hasPrefix("autoHideLiveBorder") || en.0.hasPrefix("aboutBasedOn") || en.0.hasPrefix("contact") || en.0.hasPrefix("aboutUpstream")
                 if !allowedSameKeys.contains(en.0) && !addedAfterKoreanRemoved {
                     XCTFail("L10n.\(en.0) 영어와 한국어가 동일 (\"\(en.1)\") — 번역 누락 가능성")
                 }
@@ -156,6 +156,8 @@ final class L10nTests: XCTestCase {
             ("menuBarIconMissing", L10n.menuBarIconMissing),
             ("showHitRateInMenuBar", L10n.showHitRateInMenuBar),
             ("showHitRateInMenuBarDesc", L10n.showHitRateInMenuBarDesc),
+            ("autoHideLiveBorder", L10n.autoHideLiveBorder),
+            ("autoHideLiveBorderDesc", L10n.autoHideLiveBorderDesc),
             ("hitRateLowWarning", L10n.hitRateLowWarning),
             ("lunaLibrarySection", L10n.lunaLibrarySection),
             ("lunaUseToggle", L10n.lunaUseToggle),
@@ -271,6 +273,11 @@ final class L10nTests: XCTestCase {
             ("openSettings", L10n.openSettings),
             ("noDisplayFound", L10n.noDisplayFound),
             ("cropFailed", L10n.cropFailed),
+
+            // Luna fallback
+            ("lunaFallbackToggle", L10n.lunaFallbackToggle),
+            ("lunaFallbackDesc", L10n.lunaFallbackDesc),
+            ("lunaFallbackPrefix", L10n.lunaFallbackPrefix),
         ]
     }
 

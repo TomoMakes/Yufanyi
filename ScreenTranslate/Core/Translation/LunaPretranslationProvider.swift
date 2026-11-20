@@ -103,19 +103,41 @@ final class LunaPretranslationProvider: TranslationProvider {
 
     /// Live shortcut (2026-11-06): on AUTO a short line can leave the screen before two
     /// identical frames (~0.6 s apart) confirm it, so it is never shown. A frame whose whole
-    /// text is one complete record - balanced quotes, ends with a closing quote or
-    /// sentence-final mark, a unique strict or loose exact key - may be shown at once.
-    /// A half-typed turn lacks its closing quote and keeps waiting. Never loads the
-    /// database (the first translation does), so it cannot block a frame.
-    func isCompleteExactHit(_ text: String) -> Bool {
+    /// text is one complete deterministic record - ends with a closing quote or sentence-final
+    /// mark (or a closing quote whose opening quote was dropped by OCR), and matches an
+    /// unambiguous database record without fuzzy/context guesswork - may be shown at once.
+    /// A half-typed turn lacks its closing mark or has an unclosed opening quote and keeps
+    /// waiting. Never loads the database (the first translation does), so it cannot block a frame.
+    func isCompleteExactHit(_ text: String, lineAlternates: [String: [String]] = [:]) -> Bool {
         guard rows != nil else { return false }
         let key = Self.normalized(text)
-        guard let last = key.last, "」』）)。！？!?…".contains(last), Self.balanced(key),
+        guard let last = key.last, "」』）)。！？!?…".contains(last),
               key.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) }) else { return false }
-        if ambiguousExact.contains(key) { return false }
-        if exact[key] != nil { return true }
-        let loose = Self.looseKey(key)
-        return !ambiguousLoose.contains(loose) && looseExact[loose] != nil
+        if queryVariants(text).contains(where: { ambiguousExact.contains($0) }) { return false }
+        if Self.balanced(key) {
+            if exactMatch(text) != nil
+                || longVowelMatch(text) != nil
+                || ellipsisSokuonMatch(text) != nil
+                || smallKanaMatch(text) != nil
+                || leadingSymbolMatch(text) != nil
+                || leadingDashMatch(text) != nil
+                || dashDroppedMatch(text) != nil
+                || droppedStraightQuoteMatch(text) != nil
+                || quotedPhraseMatch(text) != nil
+                || angleBracketMatch(text) != nil
+                || (last != "…" && tailMatch(text) != nil)
+                || translateSeparatedPrefix(text) != nil {
+                return true
+            }
+            if !lineAlternates.isEmpty {
+                self.lineAlternates = lineAlternates
+                defer { self.lineAlternates = [:] }
+                if alternateMatch(text) != nil { return true }
+            }
+            return false
+        }
+        guard "」』）".contains(last), !Self.hasUnclosedOpening(key) else { return false }
+        return leadingSymbolMatch(text) != nil || edgeQuoteMatch(text) != nil || angleBracketMatch(text) != nil
     }
 
     private func exactMatch(_ text: String) -> String? {
@@ -185,12 +207,27 @@ final class LunaPretranslationProvider: TranslationProvider {
               let newline = text.firstIndex(of: "\n") else { return nil }
         let prefix = String(text[..<newline]).precomposedStringWithCompatibilityMapping
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prefix.isEmpty, prefix.count <= 4,
-              prefix.range(of: "^[\\p{L}\\p{N}ー・]+$", options: .regularExpression) != nil else { return nil }
+        let hiraganaRuby = prefix.count <= 8
+            && prefix.range(of: "^[\\p{Hiragana}ー]+$", options: .regularExpression) != nil
+        let nonHiraganaName = prefix.count <= 10
+            && prefix.range(of: "^[\\p{Han}\\p{Katakana}A-Za-z0-9ー・]+$", options: .regularExpression) != nil
+        guard !prefix.isEmpty,
+              hiraganaRuby || nonHiraganaName
+                || (prefix.count <= 4 && prefix.range(of: "^[\\p{L}\\p{N}ー・]+$", options: .regularExpression) != nil)
+        else { return nil }
         let body = String(text[text.index(after: newline)...]).trimmingCharacters(in: .whitespacesAndNewlines)
         let bodyKey = Self.normalized(body)
-        guard bodyKey.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 8,
-              !ambiguousExact.contains(bodyKey), let translation = exact[bodyKey] else { return nil }
+        let bodyLetters = bodyKey.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
+        guard bodyLetters >= 8, !ambiguousExact.contains(bodyKey) else { return nil }
+        let translation: String?
+        if let hit = exact[bodyKey] {
+            translation = hit
+        } else if !hiraganaRuby, let last = bodyKey.last, "」』）)".contains(last) {
+            translation = exactMatch(body) ?? leadingSymbolMatch(body) ?? dashDroppedMatch(body) ?? edgeQuoteMatch(body)
+        } else {
+            translation = nil
+        }
+        guard let translation else { return nil }
 
         let prefixKey = Self.normalized(prefix)
         let leading: String
@@ -225,7 +262,7 @@ final class LunaPretranslationProvider: TranslationProvider {
     // blocks, and all accepted readings must agree on one translation. No fuzzy layer.
     private func alternateMatch(_ text: String) -> (String, String)? {
         guard !lineAlternates.isEmpty,
-              Self.normalized(text).unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 8
+              Self.normalized(text).unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 5
         else { return nil }
         var hits: [String: String] = [:]
         for (line, readings) in lineAlternates {
@@ -334,10 +371,20 @@ final class LunaPretranslationProvider: TranslationProvider {
                 // Score near misses as well, so a just-below-threshold rival still blocks
                 // an ambiguous result. No unbounded substring/containment acceptance.
                 let limit = max(1, Int(Double(maxLength) * 0.10))
-                let searchLimit = queryLength >= Self.twoEditMinimumLength ? max(limit, Self.twoEditRivalLimit) : limit
-                guard let distance = Self.editDistanceWithin(query, key, limit: searchLimit) else { continue }
+                let searchLimit = query.count >= Self.twoEditMinimumLength ? max(limit, Self.twoEditRivalLimit) : limit
+                let rawDistance = Self.editDistanceWithin(query, key, limit: searchLimit)
+                let foldedDistance: Int? = {
+                    guard (rawDistance ?? Int.max) > 1, query.contains("…"), key.contains("…") else { return nil }
+                    let fq = Self.ellipsisSokuonKey(query), fk = Self.ellipsisSokuonKey(key)
+                    guard fq != query || fk != key else { return nil }
+                    return Self.editDistanceWithin(fq, fk, limit: searchLimit)
+                }()
+                let useFolded = foldedDistance != nil && (rawDistance == nil || foldedDistance! < rawDistance!)
+                guard let distance = useFolded ? foldedDistance : rawDistance else { continue }
                 let translation = rows[index].translation
-                let long = queryLength >= Self.twoEditMinimumLength && rows[index].strictLength == queryLength
+                let long = query.count >= Self.twoEditMinimumLength
+                    && (useFolded ? Self.ellipsisSokuonKey(key).count == Self.ellipsisSokuonKey(query).count
+                        : rows[index].key.count == query.count)
                 if let old = nearest[translation], old.distance <= distance {} else {
                     nearest[translation] = (distance, long)
                 }
@@ -362,8 +409,14 @@ final class LunaPretranslationProvider: TranslationProvider {
         if queryVariants(text).contains(where: { ambiguousExact.contains($0) }) { return nil }
         if let hit = exactMatch(text) { return hit }
         if let hit = longVowelMatch(text) { return hit }
+        if let hit = ellipsisSokuonMatch(text) { return hit }
+        if let hit = smallKanaMatch(text) { return hit }
         if let hit = leadingSymbolMatch(text) { return hit }
+        if let hit = leadingDashMatch(text) { return hit }
         if let hit = dashDroppedMatch(text) { return hit }
+        if let hit = droppedStraightQuoteMatch(text) { return hit }
+        if let hit = quotedPhraseMatch(text) { return hit }
+        if let hit = angleBracketMatch(text) { return hit }
         if let hit = tailMatch(text) { return hit }
         if let hit = lookAlikeMatch(text) { return hit }
         // A missing final quote is not permission to match an unrelated unquoted record.
@@ -429,8 +482,24 @@ final class LunaPretranslationProvider: TranslationProvider {
 
     private func tailMatch(_ text: String) -> String? {
         for query in queryVariants(text) {
-            let stem = Self.stemKey(Self.looseKey(query))
-            guard Self.letterCount(stem) >= 4, let translations = stemIndex[stem] else { continue }
+            // Vision often reads a hollow period `。` after a dash (`すると───。`) as `o` (`すると一 o`).
+            var adjusted = query
+            if let last = adjusted.last, last == "o" || last == "°",
+               adjusted.count >= 2,
+               "―─—–ー一-".contains(adjusted[adjusted.index(adjusted.endIndex, offsetBy: -2)]) {
+                adjusted.removeLast()
+                adjusted.append("。")
+            }
+            let loose = Self.looseKey(adjusted)
+            let stem = Self.stemKey(loose)
+            let letters = Self.letterCount(stem)
+            let tail = loose[stem.endIndex...]
+            let shortDashNarration = letters == 3
+                && !stem.contains(where: { "「」『』()（）".contains($0) })
+                && tail.contains(where: { "―─—–ー一-".contains($0) })
+                && !tail.contains(where: { "!?！？".contains($0) })
+            guard letters >= 4 || shortDashNarration,
+                  let translations = stemIndex[stem] else { continue }
             return Self.single(translations)
         }
         return nil
@@ -463,7 +532,21 @@ final class LunaPretranslationProvider: TranslationProvider {
             if ambiguousLoose.contains(loose) { return nil }
             if let translation = looseExact[loose] { translations.insert(translation) }
         }
-        return Self.single(translations)
+        if let hit = Self.single(translations) { return hit }
+        // Vision sometimes drops the entire opening `「……───` on a low-contrast background,
+        // leaving `body」` (6+ letters) with no plain `「body」` in the database.
+        if let open = Self.openers[chars[chars.count - 1]], open == "「" || open == "『",
+           !Self.hasUnclosedOpening(key), Self.letterCount(key) >= 6 {
+            let plain = String(open) + key
+            let loosePlain = Self.looseKey(plain)
+            if !ambiguousExact.contains(plain), !ambiguousLoose.contains(loosePlain),
+               exact[plain] == nil, looseExact[loosePlain] == nil,
+               let candidates = leadingSymbolIndex[Self.looseKey(key)],
+               let hit = Self.single(candidates) {
+                return hit
+            }
+        }
+        return nil
     }
 
     /// 『スリーカード」 / 「『かがみ』 read as 「「かがみ』: make the quote types pair up, once
@@ -585,39 +668,135 @@ final class LunaPretranslationProvider: TranslationProvider {
         return exactMatch(variant)
     }
 
-    // Real screenshots 2026-11-06 (0022, 0028): an opening 「……─── is split off and
-    // misread (「……」」「．」」) or lost. Records that start with a quote plus an
+    // Real screenshots 2026-11-06 (0022, 0028) & 2026-11-18 (色ドリ撫子 16167 / 17583):
+    // an opening 「……─── is split off and misread (「……」」「．」」, …・・・」断る」,
+    // ・…・・・・・」ーでも」) or lost. Records that start with a quote plus an
     // ellipsis/dash run are indexed by the remaining body, closing quote included.
     private static let leadingRunCharacters = Set(".・•⋯…‥―─—–-")
     private var leadingSymbolIndex: [String: Set<String>] = [:]
+    /// Subset of `leadingSymbolIndex` whose leading run contains a dash (`「……───でも」`),
+    /// so a query with a dash remnant (`・…・・・・・」ーでも」`) prefers it over `「……でも」`.
+    private var leadingDashSymbolIndex: [String: Set<String>] = [:]
 
-    private static func leadingSymbolBody(ofRecord key: String) -> String? {
+    private static func leadingSymbolBody(ofRecord key: String) -> (body: String, hasDash: Bool)? {
         let chars = Array(key)
         guard chars.count > 2, chars[0] == "「" || chars[0] == "『" else { return nil }
         var end = 1
-        while end < chars.count && leadingRunCharacters.contains(chars[end]) { end += 1 }
+        var hasDash = false
+        while end < chars.count && leadingRunCharacters.contains(chars[end]) {
+            if "―─—–-".contains(chars[end]) { hasDash = true }
+            end += 1
+        }
         guard end > 1 else { return nil }
-        return looseKey(String(chars[end...]))
+        return (looseKey(String(chars[end...])), hasDash)
     }
 
     private func leadingSymbolMatch(_ text: String) -> String? {
-        let key = Self.normalized(text)
-        guard let firstLetter = key.firstIndex(where: { $0.unicodeScalars.contains { CharacterSet.letters.contains($0) } }),
-              firstLetter > key.startIndex else { return nil }
+        for candidate in queryVariants(text) where candidate.last == "」" || candidate.last == "』" {
+            if let hit = matchLeadingSymbol(candidate, treatKanjiOneAsDash: false) { return hit }
+            if let hit = matchLeadingSymbol(candidate, treatKanjiOneAsDash: true) { return hit }
+        }
+        return nil
+    }
+
+    private func matchLeadingSymbol(_ key: String, treatKanjiOneAsDash: Bool) -> String? {
+        guard let firstLetter = key.firstIndex(where: {
+            $0 != "ー" && !(treatKanjiOneAsDash && $0 == "一")
+                && $0.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+        }), firstLetter > key.startIndex else { return nil }
         let prefix = key[..<firstLetter]
-        guard prefix.contains(where: { Self.leadingRunCharacters.contains($0) }),
-              prefix.allSatisfy({ Self.leadingRunCharacters.contains($0) || "「」『』。、".contains($0) }) else { return nil }
+        let runCount = prefix.filter { Self.leadingRunCharacters.contains($0) }.count
+        // Only treat kanji `一` (misread from `—`/`─`) as a dash when preceded by 2+ run symbols.
+        if treatKanjiOneAsDash && (!prefix.contains("一") || runCount < 2) { return nil }
+        // Vision sometimes reads the opening 「 before ……─── as a vertical stroke (！/!/I/1).
+        let prefixRest: Substring = if runCount >= 3, let first = prefix.first,
+            Self.quoteLookAlikes.contains(first) || "！!".contains(first) {
+            prefix.dropFirst()
+        } else {
+            prefix
+        }
+        guard runCount >= 1,
+              prefixRest.allSatisfy({
+                  Self.leadingRunCharacters.contains($0)
+                      || "「」『』。、".contains($0)
+                      || (runCount >= 2 && ($0 == "ー" || (treatKanjiOneAsDash && $0 == "一")))
+              }) else { return nil }
         let body = String(key[firstLetter...])
+        let strongRun = runCount >= 3 || (treatKanjiOneAsDash && runCount >= 2)
+        let hasDash = prefix.contains(where: { "―─—–-ー".contains($0) || (treatKanjiOneAsDash && $0 == "一") })
         guard let close = body.last, close == "」" || close == "』",
-              body.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 6,
+              Self.letterCount(body) >= (strongRun ? 2 : 6),
               Self.balanced((close == "」" ? "「" : "『") + body) else { return nil }
-        guard let translations = leadingSymbolIndex[Self.looseKey(body)], translations.count == 1,
-              let translation = translations.first else { return nil }
-        // A record without the leading run is a competing reading of the same text.
-        let open: Character = close == "」" ? "「" : "『"
-        if let plain = exact[String(open) + body], plain != translation { return nil }
-        if ambiguousExact.contains(String(open) + body) { return nil }
+        let looseBody = Self.looseKey(body)
+        let translation: String
+        if hasDash, let dashed = leadingDashSymbolIndex[looseBody], let hit = Self.single(dashed) {
+            translation = hit
+        } else if let all = leadingSymbolIndex[looseBody], let hit = Self.single(all) {
+            translation = hit
+        } else {
+            return nil
+        }
+        // Only a weak prefix (1-2 stray dots) competes with the plain no-symbol record;
+        // an explicit 3+ dot/dash run (`……───`) cannot be the plain line (`「断る」`).
+        if !strongRun {
+            let open: Character = close == "」" ? "「" : "『"
+            if let plain = exact[String(open) + body], plain != translation { return nil }
+            if ambiguousExact.contains(String(open) + body) { return nil }
+        }
         return translation
+    }
+
+    // Real play 2026-11-18 (色ドリ撫子, records 49545 / 52782 / 53189): a narration line
+    // starting with ─── has the leading dash run dropped or read as a single `-`
+    // (───彼だからだ。 → -彼だからだ。, ───あれから一年。 → あれから一年。, ───『空舟櫂』。 → 『空舟櫂』。).
+    // Too short for dashDroppedMatch (8+ letters) and unquoted for leadingSymbolMatch.
+    // Index records starting with a dash run by their loose body; accept only balanced
+    // bodies of 4+ letters (or 3+ inside 『…』) when every competing record agrees.
+    private static let leadingDashCharacters = Set("―─—–-")
+    private var leadingDashIndex: [String: Set<String>] = [:]
+
+    private static func leadingDashBody(ofRecord key: String) -> String? {
+        var index = key.startIndex
+        while index < key.endIndex && "―─—–".contains(key[index]) {
+            index = key.index(after: index)
+        }
+        guard index > key.startIndex, index < key.endIndex else { return nil }
+        return looseKey(String(key[index...]))
+    }
+
+    private func leadingDashMatch(_ text: String) -> String? {
+        let key = Self.normalized(text)
+        if let hit = matchLeadingDash(key, allowKanjiOneOrLongVowel: false) { return hit }
+        return matchLeadingDash(key, allowKanjiOneOrLongVowel: true)
+    }
+
+    private func matchLeadingDash(_ key: String, allowKanjiOneOrLongVowel: Bool) -> String? {
+        var index = key.startIndex
+        while index < key.endIndex
+            && (Self.leadingDashCharacters.contains(key[index])
+                || (allowKanjiOneOrLongVowel && "一ー".contains(key[index]))) {
+            index = key.index(after: index)
+        }
+        guard !allowKanjiOneOrLongVowel || index > key.startIndex, index < key.endIndex else { return nil }
+        let body = String(key[index...])
+        if allowKanjiOneOrLongVowel {
+            // Only strip a leading kanji `一` / `ー` when it precedes a digit/date or ASCII/quote,
+            // so real words like `一日中` are never stripped into `日中`.
+            guard let first = body.first, first.isNumber || "『「(".contains(first) else { return nil }
+        }
+        guard Self.balanced(body) else { return nil }
+        let letters = Self.letterCount(body)
+        let alnum = body.unicodeScalars.filter {
+            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+        }.count
+        let titleQuoted = body.first == "『" && (body.last == "』" || body.hasSuffix("』。"))
+        guard letters >= 4 || (letters >= 2 && alnum >= 4) || (titleQuoted && letters >= 3) else { return nil }
+        let looseBody = Self.looseKey(body)
+        guard var translations = leadingDashIndex[looseBody] else { return nil }
+        if ambiguousExact.contains(body) || ambiguousLoose.contains(looseBody) { return nil }
+        if let plain = exact[body] { translations.insert(plain) }
+        if let plain = looseExact[looseBody] { translations.insert(plain) }
+        return Self.single(translations)
     }
 
     // Real play 2026-11-09 (色ドリ撫子, record 52154): Vision dropped a line-final ───
@@ -648,12 +827,205 @@ final class LunaPretranslationProvider: TranslationProvider {
         }
         for query in queryVariants(text) {
             let key = Self.dashlessKey(Self.looseKey(query))
-            guard key.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count >= 8,
+            let letters = key.unicodeScalars.filter({ CharacterSet.letters.contains($0) }).count
+            // 2026-11-20 (色ドリ撫子 55706): a short closed quote ending with ……─── read
+            // without the dash (`「この国.......」`). Allow 3+ letters only when balanced,
+            // ending in `…」`/`…』`, and no competing plain record exists.
+            let shortQuotedEllipsis = letters >= 3 && Self.balanced(key)
+                && (key.hasSuffix("…」") || key.hasSuffix("…』"))
+            guard (letters >= 8 || shortQuotedEllipsis),
                   var translations = looseDashlessIndex[key] else { continue }
             if ambiguousExact.contains(key) || ambiguousLoose.contains(key) { return nil }
             if let plain = exact[key] { translations.insert(plain) }
             if let plain = looseExact[key] { translations.insert(plain) }
-            return translations.count == 1 ? translations.first : nil
+            return Self.single(translations)
+        }
+        return nil
+    }
+
+    // 2026-11-20 (色ドリ撫子 55138 / 56213 / 56355): Vision frequently reads `……っ` before
+    // punctuation as `……•` (absorbed into `…`) or `……つ`. Index records with `…[っつ]` folded
+    // to `…` before punctuation; require balanced quotes, 6+ letters, and zero competing
+    // plain records with a different translation.
+    private static let ellipsisSokuonPattern = try! NSRegularExpression(pattern: "…[っつ](?=[、。」』）)！？!?]|$)")
+    private var ellipsisSokuonIndex: [String: Set<String>] = [:]
+
+    private static func ellipsisSokuonKey(_ loose: String) -> String {
+        guard loose.contains("…") else { return loose }
+        return ellipsisSokuonPattern.stringByReplacingMatches(
+            in: loose, range: NSRange(loose.startIndex..., in: loose), withTemplate: "…")
+    }
+
+    private func ellipsisSokuonMatch(_ text: String) -> String? {
+        guard Self.balanced(text) else { return nil }
+        for query in queryVariants(text) {
+            let loose = Self.looseKey(query)
+            guard loose.contains("…"), Self.letterCount(loose) >= 6 else { continue }
+            let folded = Self.ellipsisSokuonKey(loose)
+            guard var translations = ellipsisSokuonIndex[folded] else { continue }
+            if ambiguousExact.contains(folded) || ambiguousLoose.contains(folded) { return nil }
+            if let plain = exact[folded] { translations.insert(plain) }
+            if let plain = looseExact[folded] { translations.insert(plain) }
+            if let hit = Self.single(translations) { return hit }
+        }
+        return nil
+    }
+
+    // 2026-11-14 / 2026-11-20 (Money Parasite #53/#54): Vision drops one of a pair of
+    // curly/straight quotes (`“ハイ＆ロウ”` -> `ハイ&ロウ"`), leaving an odd number of `"`.
+    // Index records containing `"` by their quote-free loose key; accept long lines (10+
+    // letters) with an odd `"` count only when every candidate agrees on one translation.
+    private var straightQuoteLessIndex: [String: Set<String>] = [:]
+
+    // 2026-11-20 (sins of KALEIDO): Vision reads small kana as full-size (はぁ→はあ, なぁ→なあ),
+    // `〝...〟` with single `―` as `...ー、` or `"..ーミ`, and `〈...〉`/`《...》` as `<...)` / `く...>`.
+    private static let smallKanaMap: [Character: Character] = [
+        "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お",
+        "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "っ": "つ",
+    ]
+    private var smallKanaIndex: [String: Set<String>] = [:]
+    private var quotedBodyIndex: [String: Set<String>] = [:]
+    private var angleBracketIndex: [String: Set<String>] = [:]
+
+    private static func smallKanaFolded(_ key: String) -> String {
+        guard key.contains(where: { smallKanaMap[$0] != nil }) else { return key }
+        return String(key.map { smallKanaMap[$0] ?? $0 })
+    }
+
+    private static func dashToBarKey(_ key: String) -> String {
+        guard key.rangeOfCharacter(from: dashCharacters) != nil else { return key }
+        return String(key.map { "―─—–ー-".contains($0) ? "―" : $0 })
+    }
+
+    private static func angleBracketKey(_ loose: String) -> String {
+        String(loose.map {
+            switch $0 {
+            case "〈", "《": "<"
+            case "〉", "》": ">"
+            default: $0
+            }
+        })
+    }
+
+    private func smallKanaMatch(_ text: String) -> String? {
+        guard Self.balanced(text) else { return nil }
+        for query in queryVariants(text) where Self.letterCount(query) >= 5 {
+            let folded = Self.smallKanaFolded(Self.ellipsisSokuonKey(Self.looseKey(query)))
+            guard var translations = smallKanaIndex[folded] else { continue }
+            if ambiguousExact.contains(folded) || ambiguousLoose.contains(folded) { return nil }
+            if let sokuon = ellipsisSokuonIndex[folded] { translations.formUnion(sokuon) }
+            if let plain = exact[folded] { translations.insert(plain) }
+            if let plain = looseExact[folded] { translations.insert(plain) }
+            if let hit = Self.single(translations) { return hit }
+        }
+        return nil
+    }
+
+    private func quotedPhraseMatch(_ text: String) -> String? {
+        guard Self.balanced(text), !quotedBodyIndex.isEmpty else { return nil }
+        for query in queryVariants(text) where Self.letterCount(query) >= 10 {
+            let loose = Self.looseKey(query)
+            var forms = [loose]
+            // 〝X―〟 read as Xー、 (opening quote dropped, closing quote read as `、`).
+            if loose.contains("ー、") || loose.contains("―、") {
+                forms.append(loose.replacingOccurrences(of: "([ー―])、", with: "$1", options: .regularExpression))
+            }
+            // `"X―ミ...` when `"` is odd and `〟` became `ミ` right after `ー`/`―`.
+            if loose.filter({ $0 == "\"" }).count % 2 == 1 {
+                forms.append(loose.replacingOccurrences(of: "(?<=[ー―])ミ(?=[…、。」』)])", with: "", options: .regularExpression))
+            }
+            for form in forms {
+                let key = Self.smallKanaFolded(Self.dashToBarKey(form.replacingOccurrences(of: "\"", with: "")))
+                guard var translations = quotedBodyIndex[key] else { continue }
+                if ambiguousExact.contains(key) || ambiguousLoose.contains(key) { return nil }
+                if let plain = exact[key] { translations.insert(plain) }
+                if let plain = looseExact[key] { translations.insert(plain) }
+                if let hit = Self.single(translations) { return hit }
+            }
+        }
+        return nil
+    }
+
+    private func angleBracketMatch(_ text: String) -> String? {
+        guard !angleBracketIndex.isEmpty,
+              text.contains(where: { "〈〉《》<>＜＞く）)".contains($0) }) else { return nil }
+        for query in queryVariants(text) {
+            let base = Self.angleBracketKey(Self.looseKey(query))
+            let repaired = Self.repairedAngleBrackets(base)
+            var candidates = [repaired]
+            if !Self.balanced(repaired) {
+                candidates.append(contentsOf: Self.quoteRepairs(repaired))
+            }
+            var translations = Set<String>()
+            for candidate in candidates where Self.balanced(candidate) {
+                if ambiguousExact.contains(candidate) || ambiguousLoose.contains(candidate) { return nil }
+                if let hit = angleBracketIndex[candidate] { translations.formUnion(hit) }
+                if let plain = exact[candidate] { translations.insert(plain) }
+                if let plain = looseExact[candidate] { translations.insert(plain) }
+            }
+            if let hit = Self.single(translations) { return hit }
+        }
+        return nil
+    }
+
+    private static func repairedAngleBrackets(_ input: String) -> String {
+        var chars = Array(input)
+        // Step 1: an unmatched `)` (no open `(`) closing an open `<` becomes `>`.
+        var parenDepth = 0
+        var hasOpenAngle = false
+        for i in chars.indices {
+            switch chars[i] {
+            case "(": parenDepth += 1
+            case ")":
+                if parenDepth > 0 { parenDepth -= 1 }
+                else if hasOpenAngle { chars[i] = ">"; hasOpenAngle = false }
+            case "<": hasOpenAngle = true
+            case ">": hasOpenAngle = false
+            default: break
+            }
+        }
+        // Step 2: `く` at a delimiter boundary (`start`, `『`, `「`, `、`, `>`) followed by `>` or
+        // unmatched `)` (before any `<`, `「`, `『`) is a misread `<` (`く美術館の人になりたい>`).
+        parenDepth = 0
+        for i in chars.indices {
+            if chars[i] == "(" { parenDepth += 1; continue }
+            if chars[i] == ")" && parenDepth > 0 { parenDepth -= 1; continue }
+            guard chars[i] == "く" else { continue }
+            let atBoundary = i == 0 || "『「、>".contains(chars[i - 1])
+            guard atBoundary else { continue }
+            var depth = parenDepth
+            var foundCloser: Int?
+            for j in (i + 1)..<chars.count {
+                let c = chars[j]
+                if c == "(" { depth += 1 }
+                else if c == ")" {
+                    if depth > 0 { depth -= 1 }
+                    else { foundCloser = j; break }
+                } else if c == ">" {
+                    foundCloser = j; break
+                } else if "<「『".contains(c) {
+                    break
+                }
+            }
+            if let closer = foundCloser {
+                chars[i] = "<"
+                if chars[closer] == ")" { chars[closer] = ">" }
+            }
+        }
+        return String(chars)
+    }
+
+    private func droppedStraightQuoteMatch(_ text: String) -> String? {
+        guard Self.balanced(text) else { return nil }
+        for query in queryVariants(text) {
+            guard query.filter({ $0 == "\"" }).count % 2 == 1,
+                  Self.letterCount(query) >= 10 else { continue }
+            let stripped = Self.looseKey(query).replacingOccurrences(of: "\"", with: "")
+            guard var translations = straightQuoteLessIndex[stripped] else { continue }
+            if ambiguousExact.contains(stripped) || ambiguousLoose.contains(stripped) { return nil }
+            if let plain = exact[stripped] { translations.insert(plain) }
+            if let plain = looseExact[stripped] { translations.insert(plain) }
+            if let hit = Self.single(translations) { return hit }
         }
         return nil
     }
@@ -665,9 +1037,9 @@ final class LunaPretranslationProvider: TranslationProvider {
     // Another record can sit exactly one look-alike away from the misread one and the
     // swap may land on it - a small chance of the wrong line, hence off by default.
     private static let lookAlikeGroups = [
-        "仁化", "鳥島", "末未", "土士", "千干", "人入", "己已巳", "日曰",
+        "仁化", "鳥島", "末未", "土士", "千干", "人入", "己已巳", "日曰", "屑層", "澄登",
         "っつ", "ゃや", "ゅゆ", "ょよ", "ぁあ", "ぃい", "ぅう", "ぇえ", "ぉお",
-        "ッツ", "ャヤ", "ュユ", "ョヨ", "ァア", "ィイ", "ゥウ", "ェエ", "ォオ", "ヶケ",
+        "ッツ", "ャヤ", "ュユ", "ョヨ", "ァア", "ィイ", "ゥウヴ", "ェエ", "ォオ", "ヶケ",
         "ー一", "カ力", "ロ口", "エ工", "ニ二", "ハ八", "タ夕", "ト卜", "ヘへ", "ベべ", "ペぺ", "リり",
         "ばぱ", "びぴ", "ぶぷ", "べぺ", "ぼぽ", "バパ", "ビピ", "ブプ", "ベペ", "ボポ",
         "十+＋",
@@ -699,6 +1071,28 @@ final class LunaPretranslationProvider: TranslationProvider {
                 if ambiguousExact.contains(key) || loose.map(ambiguousLoose.contains) == true { return nil }
                 if let translation = exact[key] ?? loose.flatMap({ looseExact[$0] }), !translation.isEmpty {
                     translations.insert(translation)
+                } else if let loose {
+                    let letters = Self.letterCount(loose)
+                    if letters >= 8 {
+                        let dashless = Self.dashlessKey(loose)
+                        if var candidates = looseDashlessIndex[dashless] {
+                            if ambiguousExact.contains(dashless) || ambiguousLoose.contains(dashless) { return nil }
+                            if let plain = exact[dashless] { candidates.insert(plain) }
+                            if let plain = looseExact[dashless] { candidates.insert(plain) }
+                            guard let hit = Self.single(candidates) else { return nil }
+                            translations.insert(hit)
+                        }
+                    }
+                    if letters >= 10, key.filter({ $0 == "\"" }).count % 2 == 1 {
+                        let stripped = loose.replacingOccurrences(of: "\"", with: "")
+                        if var candidates = straightQuoteLessIndex[stripped] {
+                            if ambiguousExact.contains(stripped) || ambiguousLoose.contains(stripped) { return nil }
+                            if let plain = exact[stripped] { candidates.insert(plain) }
+                            if let plain = looseExact[stripped] { candidates.insert(plain) }
+                            guard let hit = Self.single(candidates) else { return nil }
+                            translations.insert(hit)
+                        }
+                    }
                 }
                 if translations.count > 1 { return nil }
             }
@@ -906,11 +1300,30 @@ final class LunaPretranslationProvider: TranslationProvider {
             stemIndex[Self.stemKey(loose), default: []].insert(translation)
             lengthBuckets[loose.count, default: []].append(result.count)
             if Self.needsRepairIndex(key), let repair = Self.repairKey(key) { repairIndex[repair, default: []].append(result.count) }
-            if let body = Self.leadingSymbolBody(ofRecord: key) { leadingSymbolIndex[body, default: []].insert(translation) }
+            if let sym = Self.leadingSymbolBody(ofRecord: key) {
+                leadingSymbolIndex[sym.body, default: []].insert(translation)
+                if sym.hasDash { leadingDashSymbolIndex[sym.body, default: []].insert(translation) }
+            }
+            if let body = Self.leadingDashBody(ofRecord: key) { leadingDashIndex[body, default: []].insert(translation) }
             let dashless = Self.dashlessKey(key)
             if dashless != key { dashlessIndex[dashless, default: []].insert(translation) }
             let looseDashless = Self.dashlessKey(loose)
             if looseDashless != loose { looseDashlessIndex[looseDashless, default: []].insert(translation) }
+            let sokuonFolded = Self.ellipsisSokuonKey(loose)
+            if sokuonFolded != loose { ellipsisSokuonIndex[sokuonFolded, default: []].insert(translation) }
+            let smallFolded = Self.smallKanaFolded(sokuonFolded)
+            if smallFolded != sokuonFolded { smallKanaIndex[smallFolded, default: []].insert(translation) }
+            if loose.contains("\"") {
+                let stripped = loose.replacingOccurrences(of: "\"", with: "")
+                if !stripped.isEmpty {
+                    straightQuoteLessIndex[stripped, default: []].insert(translation)
+                    let quotedBody = Self.smallKanaFolded(Self.dashToBarKey(stripped))
+                    if !quotedBody.isEmpty { quotedBodyIndex[quotedBody, default: []].insert(translation) }
+                }
+            }
+            if loose.contains(where: { "〈〉《》<>".contains($0) }) {
+                angleBracketIndex[Self.angleBracketKey(loose), default: []].insert(translation)
+            }
             result.append(Entry(key: loose, strictKey: key, id: id, strictLength: key.count, translation: translation))
             if let prior = looseExact[loose], prior != translation {
                 // 「……え？」 and 「…………え？」 translated with the same run lengths: one line.
@@ -970,6 +1383,7 @@ final class LunaPretranslationProvider: TranslationProvider {
     private static let dashCharacters = CharacterSet(charactersIn: "―─—–ー一-")
     private static let ellipsisPattern = try! NSRegularExpression(pattern: "[.・•⋯]{2,}|⋯")
     private static let dashPattern = try! NSRegularExpression(pattern: "[―─—–ー一-]{2,}")
+    private static let postEllipsisDashPattern = try! NSRegularExpression(pattern: "(?<=…)[―─—–ー-](?=[っつ」』）)。！？!?]|$)")
 
     private static func looseKey(_ key: String) -> String {
         var result = key
@@ -981,6 +1395,10 @@ final class LunaPretranslationProvider: TranslationProvider {
         if result.rangeOfCharacter(from: dashCharacters) != nil {
             result = dashPattern.stringByReplacingMatches(in: result,
                 range: NSRange(result.startIndex..., in: result), withTemplate: "―")
+            if result.contains("…") {
+                result = postEllipsisDashPattern.stringByReplacingMatches(in: result,
+                    range: NSRange(result.startIndex..., in: result), withTemplate: "―")
+            }
         }
         return result
     }
@@ -1019,9 +1437,9 @@ final class LunaPretranslationProvider: TranslationProvider {
                 // replaces their only hiragana character. Keep unknown labels short.
                 // Consult this provider's own indexes, never shared/global lookup state.
                 let hiraganaLabel = separated && prefix.range(of: "[\\p{Hiragana}]", options: .regularExpression) != nil
-                let knownPrefix = hiraganaLabel && (exact[prefix] != nil || looseExact[Self.looseKey(prefix)] != nil
+                let knownPrefix = separated && (exact[prefix] != nil || looseExact[Self.looseKey(prefix)] != nil
                     || ambiguousExact.contains(prefix) || ambiguousLoose.contains(Self.looseKey(prefix)))
-                let unsafeLabel = (separated && prefix.count > 4) || knownPrefix
+                let unsafeLabel = (separated && prefix.count > (hiraganaLabel ? 4 : 10)) || knownPrefix
                 // ICU script extensions include punctuation: exclude it explicitly.
                 if bracketTag || (prefix.count <= 20 && !unsafeLabel
                     && !prefix.contains(where: { "「」『』()（）。、！？!?".contains($0) })

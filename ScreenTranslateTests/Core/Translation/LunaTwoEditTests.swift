@@ -74,4 +74,14 @@ import Testing
         let output = try provider.translate(text: "「ふふ、実は私も貴方の5点は非常によく伺っておりますのでお相手ですね」", lineAlternates: [:])
         #expect(output.hasPrefix("［预翻译未命中］"))
     }
+
+    @Test func twoMisreadCharactersMatchWhenEllipsisOrDashCountDiffers() throws {
+        // 2026-11-18 色ドリ撫子 库 53070：鞣→蘇，末尾……─── 读成 ・・.....-，松散键等长且仅 2 处差异
+        let source = "「『……女の肌に纏わり付いた真紅のシュミーズを引き剥がし、男が鞣し革のバンドを……───』」"
+        let translation = "「『……剥下那紧缠在女人肌肤上的鲜红衬裙，男人将鞣革皮带……——』」"
+        let path = try makeDatabase([(source, translation)])
+        let provider = LunaPretranslationProvider(path: path)
+        let ocr = "「『・・・・・・女の肌に纏わり付いた真紅のシュミーズを\n引き剥がし、男が蘇し革のバンドを・・.....-』」"
+        #expect(try provider.translate(text: ocr, lineAlternates: [:]) == translation)
+    }
 }

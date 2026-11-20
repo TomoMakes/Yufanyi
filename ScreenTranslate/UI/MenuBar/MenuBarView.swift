@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @AppStorage(LunaMissRecorder.enabledKey) private var recordMisses = false
+    @AppStorage(AppSettings.autoHideLiveBorderKey) private var autoHideLiveBorder = false
 
     var body: some View {
         if AppOrchestrator.shared.liveHitStats?.showsLowRateWarning == true {
@@ -17,6 +18,8 @@ struct MenuBarView: View {
             AppOrchestrator.shared.toggleLiveTranslation()
         }
         .globalKeyboardShortcut(.liveTranslate)
+
+        Toggle(L10n.autoHideLiveBorder, isOn: $autoHideLiveBorder)
 
         Button(L10n.settingsMenu) {
             AppOrchestrator.shared.showSettings()

@@ -128,7 +128,9 @@ nonisolated struct OCRResult: Sendable {
                         return joinDashes.contains(c) || (wide && vowelDashes.contains(c))
                     }
                     let dashCut = isDash(left.last) || isDash(right.first)
-                    guard gap <= low * (dashCut ? 6 : 1.5) else { continue }
+                    let punctCut = left.last.map { ".・•⋯…！？!?".contains($0) } ?? false
+                    let maxGap = low * (dashCut ? 6 : (punctCut ? 5 : 1.5))
+                    guard gap <= maxGap else { continue }
                     let between = result.indices.contains { k in
                         guard k != i, k != j else { return false }
                         let kb = result[k].boundingBox
@@ -176,6 +178,15 @@ nonisolated struct OCRResult: Sendable {
         let columnMax = dialogue.map(\.boundingBox.maxX).max()!
         let heights = dialogue.map(\.boundingBox.height).sorted()
         let typical = heights[heights.count / 2]
+        // Wrapped lines of a narrative sentence may carry no punctuation on the first row
+        // (e.g. 非番の前の日以外は部屋に泊まらないという不文律が with ruby ふぶんりつ above it).
+        // Treat full-height horizontal text rows as body lines for furigana detection too.
+        let bodyLines = blocks.filter { block in
+            let box = block.boundingBox
+            guard isHorizontal(box) else { return false }
+            let letters = letterCount(trimmed(block))
+            return (punctuated(block) && letters >= 2) || (box.height >= typical * 0.7 && letters >= 4)
+        }
 
         var kept = blocks.filter { block in
             let text = trimmed(block), box = block.boundingBox
@@ -189,8 +200,8 @@ nonisolated struct OCRResult: Sendable {
                 }) { return false }
             if punctuated(block) { return true }
             let kanaOnly = text.range(of: "^[\\p{Hiragana}\\p{Katakana}ー]+$", options: .regularExpression) != nil
-            // Furigana: small kana directly above a dialogue line that it overlaps horizontally.
-            if kanaOnly && box.height < typical * 0.65, dialogue.contains(where: { d in
+            // Furigana: small kana directly above a body line that it overlaps horizontally.
+            if kanaOnly && box.height < typical * 0.65, bodyLines.contains(where: { d in
                 let db = d.boundingBox
                 return box.minY >= db.midY && box.minY - db.maxY < typical
                     && min(box.maxX, db.maxX) > max(box.minX, db.minX)
@@ -198,7 +209,17 @@ nonisolated struct OCRResult: Sendable {
             let letters = letterCount(text)
             // Short label entirely to the right of the dialogue column (auto/skip buttons,
             // signs). The left side is left alone: a framed name label lives there.
-            if letters <= 6 && box.minX > columnMax { return false }
+            // Keep full-height text on the same row right after a dialogue block: Vision
+            // splits one line at a wide space or dropped dash (「……───四木沼喬に」,
+            // 「言ったでしょう？　喬さんは」) and the right half has no punctuation.
+            let sameRowContinuation = isHorizontal(box) && box.height >= typical * 0.7
+                && dialogue.contains(where: { d in
+                    let db = d.boundingBox
+                    return abs(db.midY - box.midY) < min(db.height, box.height) * 0.5
+                        && box.minX >= db.maxX - typical * 0.3
+                        && box.minX - db.maxX <= typical * 6
+                })
+            if letters <= 6 && box.minX > columnMax && !sameRowContinuation { return false }
             // Vertical sign inside a horizontal dialogue frame.
             if !isHorizontal(box) && letters <= 8 { return false }
             // Single stray glyph that is not punctuation (background texture).

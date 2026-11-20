@@ -24,6 +24,11 @@ final class LiveTranslationSession {
         var missRecorder: LunaMissRecording?
         /// 预翻译没命中时，把这一帧换几种处理再认（LiveImageVariants）；整句对上库才采用。空 = 不做
         var rescueVariants: [LiveImageVariants.Maker] = []
+        /// 预翻译未命中时的兜底翻译器（仅在用预翻译库时注入；由 fallbackEnabled 控制开关）
+        var fallbackTranslator: TranslationProvider? = nil
+        var fallbackEnabled: () -> Bool = { false }
+        var isFallbackBusy: () -> Bool = { false }
+        var checkFallbackReadiness: (Locale.Language, Locale.Language) async -> Readiness = { _, _ in .ready }
     }
 
     enum Display: Equatable {
@@ -190,7 +195,8 @@ final class LiveTranslationSession {
         // Luna needs the layout boundaries. Its own normalization handles wrapped lines.
         let isLuna = dependencies.translator is LunaPretranslationProvider
         let text = preprocess() && !isLuna ? TranslationCoordinator.preprocessOCRText(recognized) : recognized
-        let trusted = (dependencies.translator as? LunaPretranslationProvider)?.isCompleteExactHit(text) ?? false
+        let trusted = (dependencies.translator as? LunaPretranslationProvider)?
+            .isCompleteExactHit(text, lineAlternates: lastAlternates) ?? false
         switch stabilizer.ingest(text, preservingLineBreaks: isLuna, acceptImmediately: trusted) {
         case .show(let subtitle):
             cancelTranslation()
@@ -284,6 +290,10 @@ final class LiveTranslationSession {
         let ocr = dependencies.ocr
         let variants = dependencies.rescueVariants
         let order = variants.indices.sorted { rescueWins[$0] > rescueWins[$1] }
+        let fallbackTranslator = dependencies.fallbackTranslator
+        let fallbackEnabled = dependencies.fallbackEnabled
+        let isFallbackBusy = dependencies.isFallbackBusy
+        let checkFallbackReadiness = dependencies.checkFallbackReadiness
         translationTask = Task { [weak self] in
             do {
                 // 원문을 지정했으면 시작할 때 언어팩을 이미 확인했다
@@ -295,6 +305,7 @@ final class LiveTranslationSession {
                     }
                 }
                 var translated: String
+                var displayText: String
                 if let luna = translator as? LunaPretranslationProvider {
                     translated = try luna.translate(text: text, lineAlternates: alternates)
                     // 没命中：同一帧换一种处理再认，整句对上库才采用
@@ -312,18 +323,32 @@ final class LiveTranslationSession {
                             }
                         }
                     }
+                    displayText = translated
+                    if translated.contains(LunaHitStats.missMarker),
+                       let fallbackTranslator, fallbackEnabled(), !isFallbackBusy(), !Task.isCancelled {
+                        let fallbackSource = source ?? Locale.Language(identifier: "ja")
+                        if await checkFallbackReadiness(fallbackSource, target) == .ready, !Task.isCancelled,
+                           let fallback = await Self.fallbackDisplayText(
+                               for: translated, using: fallbackTranslator, from: fallbackSource, to: target
+                           ) {
+                            displayText = fallback
+                        }
+                    }
                 } else {
                     translated = try await translator.translate(text: text, from: source, to: target)
+                    displayText = translated
                 }
-                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen, alternates: alternates, result: .success(translated))
+                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen,
+                                        alternates: alternates, displayText: displayText, result: .success(translated))
             } catch {
-                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen, alternates: alternates, result: .failure(error))
+                self?.finishTranslation(token, text: text, read: read, frame: frame, screen: screen,
+                                        alternates: alternates, displayText: nil, result: .failure(error))
             }
         }
     }
 
     private func finishTranslation(_ token: UUID, text: String, read: ReadInfo, frame: CGImage?, screen: Int,
-                                   alternates: [String: [String]], result: Result<String, Error>) {
+                                   alternates: [String: [String]], displayText: String?, result: Result<String, Error>) {
         guard token == translationToken else { return }  // 새 자막에 밀린 옛 결과
         translationTask = nil
         guard isRunning else { return }
@@ -358,7 +383,7 @@ final class LiveTranslationSession {
                     onHitStatsChange?(hitStats)
                 }
             }
-            setDisplay(.subtitle(translated))
+            setDisplay(.subtitle(displayText ?? translated))
         case .failure(let error):
             if let translationError = error as? TranslationError, case .superseded = translationError {
                 if pendingText == nil { pendingText = text; pendingRead = read; pendingFrame = frame; pendingScreen = screen }  // 다른 기능에 밀림 — 다음 틱에 다시
@@ -371,6 +396,33 @@ final class LiveTranslationSession {
 
     private func noteRescue(_ index: Int) {
         if rescueWins.indices.contains(index) { rescueWins[index] += 1 }
+    }
+
+    /// 预翻译未命中时，对未命中的段落调用兜底翻译器，失败则保持原样不报错。
+    private static func fallbackDisplayText(
+        for lunaOutput: String,
+        using fallback: TranslationProvider,
+        from source: Locale.Language,
+        to target: Locale.Language
+    ) async -> String? {
+        let missPrefix = LunaHitStats.missMarker + "\n"
+        var segments = lunaOutput.components(separatedBy: "\n\n")
+        var replaced = false
+        for index in segments.indices {
+            guard !Task.isCancelled else { return nil }
+            let segment = segments[index]
+            guard segment.hasPrefix(missPrefix) else { continue }
+            let raw = String(segment.dropFirst(missPrefix.count))
+            let cleaned = TranslationCoordinator.preprocessOCRText(raw)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty else { continue }
+            guard let mt = try? await fallback.translate(text: cleaned, from: source, to: target) else { continue }
+            let trimmed = mt.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            segments[index] = L10n.lunaFallbackPrefix + "\n" + trimmed
+            replaced = true
+        }
+        return replaced ? segments.joined(separator: "\n\n") : nil
     }
 
     private func saveHeldMiss() {

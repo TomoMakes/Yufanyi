@@ -32,7 +32,9 @@ struct SettingsView: View {
     /// @AppStorage로 직접 관찰 — 시스템이 아이콘을 빼서 값이 바뀌어도 토글이 따라온다
     @AppStorage(AppSettings.showMenuBarIconKey) private var showMenuBarIcon = true
     @AppStorage(AppSettings.showHitRateInMenuBarKey) private var showHitRateInMenuBar = true
+    @AppStorage(AppSettings.autoHideLiveBorderKey) private var autoHideLiveBorder = false
     @AppStorage(AppSettings.lunaLookAlikeKey) private var lunaLookAlike = false
+    @AppStorage(AppSettings.lunaFallbackTranslateKey) private var lunaFallbackTranslate = false
     @AppStorage(LunaMissRecorder.enabledKey) private var recordLunaMisses = false
     @State private var feedbackCopied = false
     @State private var showHideIconConfirm = false
@@ -256,6 +258,15 @@ struct SettingsView: View {
                 }
                 .disabled(!showMenuBarIcon)
 
+                Toggle(isOn: $autoHideLiveBorder) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.autoHideLiveBorder)
+                        Text(L10n.autoHideLiveBorderDesc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 // macOS 26부터 시스템 설정에서 앱별로 메뉴바 아이콘을 끌 수 있다.
                 // 앱은 그 상태를 알 수 없으므로(메뉴바 항목 창을 제어 센터가 소유) 바로가기만 둔다.
                 if #available(macOS 26, *) {
@@ -332,6 +343,14 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L10n.lunaLookAlikeToggle)
                         Text(L10n.lunaLookAlikeDesc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Toggle(isOn: $lunaFallbackTranslate) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.lunaFallbackToggle)
+                        Text(L10n.lunaFallbackDesc)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

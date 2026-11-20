@@ -698,7 +698,13 @@ final class AppOrchestrator {
                     return await LiveTranslatePreflight.readiness(for: text, to: target)
                 },
                 missRecorder: missRecorder,
-                rescueVariants: useLuna ? LiveImageVariants.all : []
+                rescueVariants: useLuna ? LiveImageVariants.all : [],
+                fallbackTranslator: useLuna ? liveTranslator : nil,
+                fallbackEnabled: { AppSettings.shared.lunaFallbackTranslate },
+                isFallbackBusy: { TranslationBridge.shared.isTranslating },
+                checkFallbackReadiness: { source, target in
+                    await LiveTranslatePreflight.readiness(from: source, to: target)
+                }
             ),
             region: { [weak regionWindow] in
                 regionWindow.map { LiveRegion(rect: $0.region, displayID: displayID, scale: scale) }

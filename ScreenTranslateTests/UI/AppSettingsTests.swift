@@ -110,6 +110,22 @@ extension SerializedDefaultsSuite {
         #expect(AppSettings.shared.showMenuBarIcon == false)
     }
 
+    @Test("default autoHideLiveBorder is false and shares key with @AppStorage")
+    func autoHideLiveBorderDefaultAndKey() {
+        let key = AppSettings.autoHideLiveBorderKey
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        #expect(key == "com.yufanyi.autoHideLiveBorder")
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(AppSettings.shared.autoHideLiveBorder == false)
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(AppSettings.shared.autoHideLiveBorder == true)
+    }
+
     // 预翻译 for Mac：实时翻译是唯一功能，始终开启（2026-11-06 定），存了 false 也不关
     @Test("live translate is always on, whatever is stored")
     func defaultLiveTranslateEnabled() {
@@ -195,6 +211,21 @@ extension SerializedDefaultsSuite {
 
         AppSettings.shared.popupFontName = "pretendard"
         #expect(UserDefaults.standard.string(forKey: key) == "pretendard")
+    }
+
+    @Test("default lunaFallbackTranslate is false and shares key with AppStorage")
+    func lunaFallbackTranslateDefaultAndKey() {
+        let key = AppSettings.lunaFallbackTranslateKey
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(AppSettings.shared.lunaFallbackTranslate == false)
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(AppSettings.shared.lunaFallbackTranslate == true)
     }
 }
 }

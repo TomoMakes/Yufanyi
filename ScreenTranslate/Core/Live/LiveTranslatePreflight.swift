@@ -28,4 +28,14 @@ enum LiveTranslatePreflight {
             return .ready  // 언어를 알아내지 못하면 번역을 시도하고, 실패 이유는 번역 쪽이 보여준다
         }
     }
+
+    /// 已知源语言和目标语言时，检查 Apple 离线翻译语言包是否已安装（预翻译未命中兜底用）
+    static func readiness(from source: Locale.Language, to target: Locale.Language) async -> LiveTranslationSession.Readiness {
+        switch await LanguageAvailability().status(from: source, to: target) {
+        case .installed: return .ready
+        case .supported: return .needsDownload
+        case .unsupported: return .unsupported
+        @unknown default: return .ready
+        }
+    }
 }
