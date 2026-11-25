@@ -179,6 +179,67 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         Form {
+            Section(L10n.lunaLibrarySection) {
+                Toggle(L10n.lunaUseToggle, isOn: $settings.useLunaPretranslation)
+                if libraryStore.libraries.isEmpty {
+                    Text(L10n.lunaLibraryEmpty)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(libraryStore.libraries) { library in
+                    HStack {
+                        Button {
+                            AppOrchestrator.shared.activateLunaLibrary(library)
+                        } label: {
+                            Image(systemName: libraryStore.activeID == library.id ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(libraryStore.activeID == library.id ? Color.accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.lunaLibraryUse)
+                        Text(library.name)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button(L10n.lunaLibraryRemove) {
+                            libraryToRemove = library
+                        }
+                    }
+                }
+                HStack {
+                    if !libraryStore.canImport {
+                        Text(L10n.lunaLibraryLimitNote(LunaLibraryStore.maxCount))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(L10n.lunaLibraryImport) {
+                        importLunaLibrary()
+                    }
+                    .disabled(!libraryStore.canImport)
+                }
+                Text(L10n.lunaLibraryHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .alert(L10n.lunaLibraryRemoveTitle, isPresented: Binding(
+                get: { libraryToRemove != nil },
+                set: { if !$0 { libraryToRemove = nil } }
+            ), presenting: libraryToRemove) { library in
+                Button(L10n.lunaLibraryRemove, role: .destructive) {
+                    libraryStore.remove(library)
+                    AppOrchestrator.shared.reloadLiveSessionIfUsingLuna()
+                }
+            } message: { library in
+                Text(L10n.lunaLibraryRemoveMessage(library.name))
+            }
+            .alert(L10n.lunaLibraryImportFailed, isPresented: Binding(
+                get: { libraryImportError != nil },
+                set: { if !$0 { libraryImportError = nil } }
+            )) {
+                Button("OK") {}
+            } message: {
+                Text(libraryImportError ?? "")
+            }
+
             Section(L10n.translationSection) {
                 HStack(spacing: 10) {
                     HStack(spacing: 4) {
@@ -300,45 +361,6 @@ struct SettingsView: View {
     private var advancedTab: some View {
         Form {
             Section(L10n.lunaLibrarySection) {
-                Toggle(L10n.lunaUseToggle, isOn: $settings.useLunaPretranslation)
-                if libraryStore.libraries.isEmpty {
-                    Text(L10n.lunaLibraryEmpty)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(libraryStore.libraries) { library in
-                    HStack {
-                        Button {
-                            libraryStore.activate(library)
-                        } label: {
-                            Image(systemName: libraryStore.activeID == library.id ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(libraryStore.activeID == library.id ? Color.accentColor : .secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.lunaLibraryUse)
-                        Text(library.name)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button(L10n.lunaLibraryRemove) {
-                            libraryToRemove = library
-                        }
-                    }
-                }
-                HStack {
-                    if !libraryStore.canImport {
-                        Text(L10n.lunaLibraryLimitNote(LunaLibraryStore.maxCount))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button(L10n.lunaLibraryImport) {
-                        importLunaLibrary()
-                    }
-                    .disabled(!libraryStore.canImport)
-                }
-                Text(L10n.lunaLibraryHelp)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 Toggle(isOn: $lunaLookAlike) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L10n.lunaLookAlikeToggle)
@@ -381,24 +403,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .alert(L10n.lunaLibraryRemoveTitle, isPresented: Binding(
-                get: { libraryToRemove != nil },
-                set: { if !$0 { libraryToRemove = nil } }
-            ), presenting: libraryToRemove) { library in
-                Button(L10n.lunaLibraryRemove, role: .destructive) {
-                    libraryStore.remove(library)
-                }
-            } message: { library in
-                Text(L10n.lunaLibraryRemoveMessage(library.name))
-            }
-            .alert(L10n.lunaLibraryImportFailed, isPresented: Binding(
-                get: { libraryImportError != nil },
-                set: { if !$0 { libraryImportError = nil } }
-            )) {
-                Button("OK") {}
-            } message: {
-                Text(libraryImportError ?? "")
-            }
             Section(L10n.popupSection) {
                 Stepper(value: $settings.popupFontSize, in: 11...20, step: 1) {
                     HStack {
@@ -429,6 +433,7 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try libraryStore.importDatabase(from: url)
+            AppOrchestrator.shared.reloadLiveSessionIfUsingLuna()
         } catch {
             libraryImportError = error.errorDescription
         }

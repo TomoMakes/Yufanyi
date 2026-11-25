@@ -1,78 +1,145 @@
 import AppKit
 import SwiftUI
 
-/// 「联系作者」小窗里列出的联系方式（从菜单栏下拉菜单进入，以小窗列出各渠道供选择）。
-/// 加新的联系方式：在 `channels` 里加一条。
+/// 「联系作者 / 获取更新」小窗：小红书、百度网盘（长期有效 + 二维码）、邮箱、GitHub。
 enum ContactInfo {
-    /// 小红书为主（B站、抖音同名）；只放账号名不放链接，换链接不用发新版
     static let socialName = "TomoMakes_"
-    /// 夸克群：最新版发在这里，进群自取
-    static let quarkGroupID = "111871874"
-    static let githubIssues = URL(string: "https://github.com/TomoMakes/Yufanyi/issues")!
-    /// 下载页指向 Releases 列表（测试版是预发布版，不计入 latest）
+    static let baiduPanCode = "i6r8"
+    static let baiduPanURL = URL(string: "https://pan.baidu.com/s/1gVOUwDNnaakvlkr5h8_QHg?pwd=i6r8")!
+    static let email = "Gotosleepat9pm@gmail.com"
     static let githubReleases = URL(string: "https://github.com/TomoMakes/Yufanyi/releases")!
-    /// 对外联系邮箱（与小红书主页公开的一致）；nil 时不显示邮件这一项。
-    static let email: String? = "Gotosleepat9pm@gmail.com"
-
-    struct Channel: Identifiable {
-        enum Action {
-            case open(URL)
-            case copy(String)
-        }
-        let id: String
-        let symbol: String
-        let title: String
-        let detail: String
-        let actions: [(label: String, action: Action)]
-    }
-
-    static var channels: [Channel] {
-        // 顺序：小红书（主）→ 夸克群 → 邮件 → GitHub
-        var list = [
-            Channel(id: "xiaohongshu", symbol: "person.crop.circle", title: L10n.contactSocialTitle(socialName),
-                    detail: L10n.contactSocialDetail, actions: [(L10n.contactCopyName, .copy(socialName))]),
-            Channel(id: "quark", symbol: "person.3", title: L10n.contactQuarkTitle(quarkGroupID),
-                    detail: L10n.contactQuarkDetail, actions: [(L10n.contactCopyGroupID, .copy(quarkGroupID))]),
-        ]
-        if let email, let mailto = URL(string: "mailto:\(email)") {
-            list.append(Channel(id: "email", symbol: "envelope", title: L10n.contactEmailTitle, detail: email,
-                                actions: [(L10n.copy, .copy(email)), (L10n.contactWriteEmail, .open(mailto))]))
-        }
-        // 不只是反馈：最新版和源码也在这里，只是英文网站、提交问题要账号，所以放最后
-        list.append(Channel(id: "github", symbol: "chevron.left.forwardslash.chevron.right", title: L10n.contactGitHubTitle,
-                            detail: L10n.contactGitHubDetail,
-                            actions: [(L10n.contactDownload, .open(githubReleases)), (L10n.contactReportIssue, .open(githubIssues))]))
-        return list
-    }
+    static let githubIssues = URL(string: "https://github.com/TomoMakes/Yufanyi/issues")!
 }
 
 struct ContactView: View {
     @State private var copiedID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 11) {
             Text(L10n.contactIntro)
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            ForEach(ContactInfo.channels) { channel in
-                HStack(spacing: 10) {
-                    Image(systemName: channel.symbol)
-                        .font(.title3)
-                        .frame(width: 24)
-                        .foregroundStyle(.tint)
+            // 小红书
+            card {
+                HStack(spacing: 12) {
+                    iconBadge(systemName: "person.crop.circle")
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(channel.title)
-                        Text(channel.detail)
+                        Text(L10n.contactSocialTitle(ContactInfo.socialName))
+                            .font(.headline)
+                        Text(L10n.contactSocialDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(copiedID == "xiaohongshu" ? L10n.copied : L10n.contactCopyName) {
+                        copy(ContactInfo.socialName, id: "xiaohongshu")
+                    }
+                }
+            }
+
+            // 百度网盘（长期有效 + 二维码）
+            card {
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top, spacing: 12) {
+                            iconBadge(systemName: "arrow.down.circle")
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(L10n.contactBaiduTitle)
+                                    .font(.headline)
+                                Text(L10n.contactBaiduDetail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 4) {
+                                    Text(L10n.contactBaiduCodeLabel)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(ContactInfo.baiduPanCode)
+                                        .font(.caption.monospaced().weight(.semibold))
+                                        .textSelection(.enabled)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.14), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                }
+                                .padding(.top, 2)
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            Button(L10n.contactBaiduOpen) {
+                                NSWorkspace.shared.open(ContactInfo.baiduPanURL)
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button(copiedID == "baiducode" ? L10n.copied : L10n.contactBaiduCopyCode) {
+                                copy(ContactInfo.baiduPanCode, id: "baiducode")
+                            }
+                        }
+                        .padding(.leading, 40)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: 4) {
+                        Image("BaiduPanQR")
+                            .resizable()
+                            .interpolation(.none)
+                            .scaledToFit()
+                            .frame(width: 86, height: 86)
+                            .padding(4)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+                            )
+                        Text(L10n.contactBaiduQRCaption)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            // 邮箱
+            card {
+                HStack(spacing: 12) {
+                    iconBadge(systemName: "envelope")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.contactEmailTitle)
+                            .font(.headline)
+                        Text(ContactInfo.email)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
                     Spacer()
-                    ForEach(Array(channel.actions.enumerated()), id: \.offset) { _, item in
-                        Button(copiedID == channel.id && isCopy(item.action) ? L10n.copied : item.label) {
-                            perform(item.action, channelID: channel.id)
+                    Button(copiedID == "email" ? L10n.copied : L10n.copy) {
+                        copy(ContactInfo.email, id: "email")
+                    }
+                    if let mailto = URL(string: "mailto:\(ContactInfo.email)") {
+                        Button(L10n.contactWriteEmail) {
+                            NSWorkspace.shared.open(mailto)
                         }
+                    }
+                }
+            }
+
+            // GitHub
+            card {
+                HStack(spacing: 12) {
+                    iconBadge(systemName: "chevron.left.forwardslash.chevron.right")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.contactGitHubTitle)
+                            .font(.headline)
+                        Text(L10n.contactGitHubDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(L10n.contactDownload) {
+                        NSWorkspace.shared.open(ContactInfo.githubReleases)
+                    }
+                    Button(L10n.contactReportIssue) {
+                        NSWorkspace.shared.open(ContactInfo.githubIssues)
                     }
                 }
             }
@@ -80,25 +147,35 @@ struct ContactView: View {
             Text(L10n.contactVersionHint(AppVersion.fullVersion))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .padding(.top, 2)
         }
         .padding(20)
-        .frame(width: 400)
+        .frame(width: 470)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func isCopy(_ action: ContactInfo.Channel.Action) -> Bool {
-        if case .copy = action { return true }
-        return false
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+            )
     }
 
-    private func perform(_ action: ContactInfo.Channel.Action, channelID: String) {
-        switch action {
-        case .open(let url):
-            NSWorkspace.shared.open(url)
-        case .copy(let text):
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-            copiedID = channelID
-        }
+    private func iconBadge(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+            .frame(width: 28, height: 28)
+            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func copy(_ text: String, id: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copiedID = id
     }
 }

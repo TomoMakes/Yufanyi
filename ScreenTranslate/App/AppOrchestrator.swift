@@ -651,6 +651,50 @@ final class AppOrchestrator {
         liveSession?.stop(reason)  // → onStop → liveSessionDidStop
     }
 
+    /// 切换当前预翻译库；若实时翻译正在运行，保留选区直接以新库重启。
+    func activateLunaLibrary(_ library: LunaLibraryStore.Library) {
+        let store = LunaLibraryStore.shared
+        let changed = store.activeID != library.id
+        store.activate(library)
+        if changed {
+            reloadLiveSessionIfUsingLuna()
+        }
+    }
+
+    /// 从菜单栏直接导入预翻译库（导入成功后若正在实时翻译，自动切到新库）。
+    func importLunaLibraryFromMenu() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = L10n.lunaLibraryImportPanel
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try LunaLibraryStore.shared.importDatabase(from: url)
+            reloadLiveSessionIfUsingLuna()
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = L10n.lunaLibraryImportFailed
+            alert.informativeText = error.errorDescription ?? error.localizedDescription
+            alert.addButton(withTitle: L10n.confirm)
+            alert.runModal()
+        }
+    }
+
+    func reloadLiveSessionIfUsingLuna() {
+        guard AppSettings.shared.useLunaPretranslation,
+              liveSession != nil,
+              let regionWindow = liveRegionWindow else { return }
+        let savedRegion = regionWindow.region
+        let savedScreen = regionWindow.screen
+        stopLiveTranslation(.user)
+        guard let path = LunaLibraryStore.shared.activePath,
+              FileManager.default.fileExists(atPath: path) else { return }
+        beginLiveTranslation(region: savedRegion, screen: savedScreen)
+    }
+
     /// 베타 설정에 맞춰 단축키를 켜고 끈다 — Carbon 핫키는 콜백이 무시해도 그 키 조합을 다른 앱에서 가로채므로
     /// 베타를 끄면 등록 자체를 풀어야 한다 (드래그 번역 updateDragTranslateMode와 같은 방식)
     func updateLiveTranslateShortcut() {

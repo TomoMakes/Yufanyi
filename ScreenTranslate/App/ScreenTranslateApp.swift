@@ -26,7 +26,7 @@ struct ScreenTranslateApp: App {
         } label: {
             MenuBarLabel()
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }
 
@@ -94,6 +94,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppOrchestrator.shared.showOnboardingIfNeeded()
         // 아이콘이 숨겨진 채 직접 켰으면 실행 중임을 알린다
         AppOrchestrator.shared.showBackgroundNoticeIfNeeded(launchKind: launchKind)
+        // 启动后静默检查一次新版本（离线/超时不打扰）
+        UpdateChecker.shared.startBackgroundChecks()
 
         #if DEBUG
         // 실행 확인용 훅 — Release 빌드에는 포함되지 않는다

@@ -123,6 +123,8 @@ nonisolated enum L10n {
     // MARK: - 预翻译库（导入制）
 
     static var lunaLibrarySection: String { s("Pre-translation Databases", ko: "Pre-translation Databases", zh: "预翻译库 · 实时字幕", tw: "預翻譯庫 · 即時字幕") }
+    static var lunaLibraryMenuSection: String { s("Pre-translation Database", ko: "Pre-translation Database", zh: "预翻译库", tw: "預翻譯庫") }
+    static var lunaLibraryManage: String { s("Manage Databases…", ko: "Manage Databases…", zh: "管理预翻译库…", tw: "管理預翻譯庫…") }
     static var lunaUseToggle: String { s("Use Luna pre-translation database (no machine translation)", ko: "Use Luna pre-translation database (no machine translation)", zh: "使用 Luna 预翻译库（不用机器翻译）", tw: "使用 Luna 預翻譯庫（不用機器翻譯）") }
     static var lunaLibraryEmpty: String { s("No database imported yet", ko: "No database imported yet", zh: "还没有导入预翻译库", tw: "還沒有匯入預翻譯庫") }
     static var lunaLibraryImport: String { s("Import .sqlite…", ko: "Import .sqlite…", zh: "导入 .sqlite…", tw: "匯入 .sqlite…") }
@@ -142,7 +144,7 @@ nonisolated enum L10n {
     static func lunaLibraryFull(_ n: Int) -> String { s("Up to \(n) databases for now. Remove one first.", ko: "Up to \(n) databases for now. Remove one first.", zh: "目前支持 \(n) 个库，请先删掉一个。", tw: "目前支援 \(n) 個庫，請先刪掉一個。") }
     static var lunaLibraryNotLuna: String { s("This file isn't a LunaTranslator pre-translation database.", ko: "This file isn't a LunaTranslator pre-translation database.", zh: "这个文件不是 LunaTranslator 的预翻译库。", tw: "這個檔案不是 LunaTranslator 的預翻譯庫。") }
     static func lunaLibraryCopyFailed(_ reason: String) -> String { s("Couldn't copy the file: \(reason)", ko: "Couldn't copy the file: \(reason)", zh: "复制文件失败：\(reason)", tw: "複製檔案失敗：\(reason)") }
-    static var lunaLibraryMissing: String { s("Import a .sqlite database first in Settings → Advanced → Pre-translation Databases.", ko: "Import a .sqlite database first in Settings → Advanced → Pre-translation Databases.", zh: "请先在设置 → 高级 → 预翻译库中导入 .sqlite 文件", tw: "請先在設定 → 進階 → 預翻譯庫中匯入 .sqlite 檔案") }
+    static var lunaLibraryMissing: String { s("Import a .sqlite database first from the menu bar or Settings.", ko: "Import a .sqlite database first from the menu bar or Settings.", zh: "请先在菜单栏或设置中导入 .sqlite 预翻译库", tw: "請先在選單列或設定中匯入 .sqlite 預翻譯庫") }
 
     static var lunaFileMissing: String { s("Pre-translation database not found. Please import it again.", ko: "Pre-translation database not found. Please import it again.", zh: "找不到预翻译库，请重新导入", tw: "找不到預翻譯庫，請重新匯入") }
     static func lunaOpenFailed(_ message: String) -> String { s("Couldn't open SQLite: \(message)", ko: "Couldn't open SQLite: \(message)", zh: "无法打开 SQLite：\(message)", tw: "無法開啟 SQLite：\(message)") }
@@ -174,23 +176,44 @@ nonisolated enum L10n {
 
     // MARK: - 联系作者
 
-    static var contactAuthor: String { s("Contact the Author…", ko: "Contact the Author…", zh: "联系作者…", tw: "聯絡作者…") }
-    static var contactWindowTitle: String { s("Contact the Author", ko: "Contact the Author", zh: "联系作者", tw: "聯絡作者") }
-    static var contactIntro: String { s("Found a problem or want a new feature? Let me know.", ko: "Found a problem or want a new feature? Let me know.", zh: "用着有问题、想要新功能，都可以告诉我。", tw: "用著有問題、想要新功能，都可以告訴我。") }
+    static var contactAuthor: String { s("Contact & Updates…", ko: "Contact & Updates…", zh: "联系作者 / 获取更新…", tw: "聯絡作者 / 取得更新…") }
+    static var contactWindowTitle: String { s("Contact & Updates", ko: "Contact & Updates", zh: "联系作者 / 获取更新", tw: "聯絡作者 / 取得更新") }
+    static var contactIntro: String { s("Found a problem or want a new feature? Let me know. Latest builds are synced to Baidu Pan.", ko: "Found a problem or want a new feature? Let me know. Latest builds are synced to Baidu Pan.", zh: "用着有问题、想要新功能，都可以告诉我；最新版长期同步在网盘。", tw: "用著有問題、想要新功能，都可以告訴我；最新版長期同步在網盤。") }
     static func contactSocialTitle(_ name: String) -> String { s("Xiaohongshu · \(name)", ko: "Xiaohongshu · \(name)", zh: "小红书 · \(name)", tw: "小紅書 · \(name)") }
-    static var contactSocialDetail: String { s("Updates and replies are here first. Same name on Bilibili and Douyin.", ko: "Updates and replies are here first. Same name on Bilibili and Douyin.", zh: "主要在这里更新和回复，B站、抖音同名", tw: "主要在這裡更新和回覆，B站、抖音同名") }
+    static var contactSocialDetail: String { s("Bug reports, suggestions, and update announcements.", ko: "Bug reports, suggestions, and update announcements.", zh: "反馈问题、提建议或看更新动态", tw: "回報問題、提建議或看更新動態") }
     static var contactCopyName: String { s("Copy Name", ko: "Copy Name", zh: "复制名字", tw: "複製名字") }
-    static func contactQuarkTitle(_ id: String) -> String { s("Quark Group · \(id)", ko: "Quark Group · \(id)", zh: "夸克群 · \(id)", tw: "夸克群 · \(id)") }
-    static var contactQuarkDetail: String { s("New versions are posted here first. Join to download the installer.", ko: "New versions are posted here first. Join to download the installer.", zh: "最新版第一时间发在群里，进群自己下载安装包", tw: "最新版第一時間發在群裡，進群自己下載安裝包") }
-    static var contactCopyGroupID: String { s("Copy Group ID", ko: "Copy Group ID", zh: "复制群号", tw: "複製群號") }
+    static var contactBaiduTitle: String { s("Baidu Pan · Latest Version", ko: "Baidu Pan · Latest Version", zh: "百度网盘 · 获取最新版", tw: "百度網盤 · 取得最新版") }
+    static var contactBaiduDetail: String { s("Permanent link for the latest macOS installer.", ko: "Permanent link for the latest macOS installer.", zh: "长期有效，新版安装包放这里", tw: "長期有效，新版安裝包放這裡") }
+    static var contactBaiduCodeLabel: String { s("Code:", ko: "Code:", zh: "提取码：", tw: "提取碼：") }
+    static var contactBaiduOpen: String { s("Open Baidu Pan", ko: "Open Baidu Pan", zh: "打开网盘", tw: "開啟網盤") }
+    static var contactBaiduCopyCode: String { s("Copy Code", ko: "Copy Code", zh: "复制提取码", tw: "複製提取碼") }
+    static var contactBaiduQRCaption: String { s("Scan in Baidu Pan", ko: "Scan in Baidu Pan", zh: "网盘 App 扫码直达", tw: "網盤 App 掃碼直達") }
+    static var contactEmailTitle: String { s("Email", ko: "Email", zh: "邮箱", tw: "信箱") }
+    static var contactWriteEmail: String { s("Write Email", ko: "Write Email", zh: "写邮件", tw: "寫郵件") }
     static var contactGitHubTitle: String { s("GitHub · Latest Version and Source", ko: "GitHub · Latest Version and Source", zh: "GitHub · 最新版和源码", tw: "GitHub · 最新版和原始碼") }
     static var contactGitHubDetail: String { s("English site; reporting a problem needs a GitHub account", ko: "English site; reporting a problem needs a GitHub account", zh: "英文网站，国内打开可能较慢\n提交问题需要 GitHub 账号", tw: "英文網站，部分地區開啟可能較慢\n提交問題需要 GitHub 帳號") }
     static var contactDownload: String { s("Download", ko: "Download", zh: "下载", tw: "下載") }
     static var contactReportIssue: String { s("Report a Problem", ko: "Report a Problem", zh: "提交问题", tw: "回報問題") }
-    static var contactEmailTitle: String { s("Email", ko: "Email", zh: "邮件", tw: "電子郵件") }
-    static var contactOpen: String { s("Open", ko: "Open", zh: "打开", tw: "開啟") }
-    static var contactWriteEmail: String { s("Write Email", ko: "Write Email", zh: "写邮件", tw: "寫郵件") }
-    static func contactVersionHint(_ version: String) -> String { s("Please include your version (\(version)) when reporting a problem.", ko: "Please include your version (\(version)) when reporting a problem.", zh: "反馈问题时请写上版本号（\(version)），方便排查。", tw: "回報問題時請寫上版本號（\(version)），方便排查。") }
+    static func contactVersionHint(_ version: String) -> String { s("Current version: \(version) · Please include it when reporting a problem.", ko: "Current version: \(version) · Please include it when reporting a problem.", zh: "当前版本：\(version) · 反馈问题时请附上版本号，方便排查。", tw: "目前版本：\(version) · 回報問題時請附上版本號，方便排查。") }
+
+    // MARK: - 检查更新
+    static var checkUpdatesMenu: String { s("Check for Updates…", ko: "Check for Updates…", zh: "检查更新…", tw: "檢查更新…") }
+    static func newVersionMenu(_ version: String) -> String { s("New Version v\(version)", ko: "New Version v\(version)", zh: "发现新版本 v\(version)", tw: "發現新版本 v\(version)") }
+    static var updateAvailableTitle: String { s("Update Available", ko: "Update Available", zh: "发现新版本", tw: "發現新版本") }
+    static func updateAvailableMessage(latest: String, current: String, notes: String) -> String {
+        let base = s("Latest version: v\(latest) (current: v\(current)).\nDownload from Baidu Pan (code: \(ContactInfo.baiduPanCode)) or GitHub.",
+                     ko: "Latest version: v\(latest) (current: v\(current)).\nDownload from Baidu Pan (code: \(ContactInfo.baiduPanCode)) or GitHub.",
+                     zh: "最新版本：v\(latest)（当前：v\(current)）\n可前往百度网盘（提取码：\(ContactInfo.baiduPanCode)）或 GitHub 下载。",
+                     tw: "最新版本：v\(latest)（目前：v\(current)）\n可前往百度網盤（提取碼：\(ContactInfo.baiduPanCode)）或 GitHub 下載。")
+        return notes.isEmpty ? base : "\(base)\n\n\(notes)"
+    }
+    static var updateUpToDateTitle: String { s("You're Up to Date", ko: "You're Up to Date", zh: "当前已是最新版本", tw: "目前已是最新版本") }
+    static func updateUpToDateMessage(_ current: String) -> String { s("You are using the latest version (v\(current)).", ko: "You are using the latest version (v\(current)).", zh: "你正在使用最新版本（v\(current)）。", tw: "你正在使用最新版本（v\(current)）。") }
+    static var updateFailedTitle: String { s("Couldn't Check for Updates", ko: "Couldn't Check for Updates", zh: "暂时无法检查更新", tw: "暫時無法檢查更新") }
+    static var updateFailedMessage: String { s("Couldn't reach GitHub right now. You can check the Baidu Pan folder directly (code: \(ContactInfo.baiduPanCode)).", ko: "Couldn't reach GitHub right now. You can check the Baidu Pan folder directly (code: \(ContactInfo.baiduPanCode)).", zh: "当前无法连接 GitHub，你可以直接打开百度网盘查看最新版（提取码：\(ContactInfo.baiduPanCode)）。", tw: "目前無法連線至 GitHub，你可以直接開啟百度網盤查看最新版（提取碼：\(ContactInfo.baiduPanCode)）。") }
+    static var updateOpenBaiduPan: String { s("Download via Baidu Pan", ko: "Download via Baidu Pan", zh: "百度网盘下载", tw: "百度網盤下載") }
+    static var updateOpenGitHub: String { s("Open GitHub Releases", ko: "Open GitHub Releases", zh: "GitHub 下载", tw: "GitHub 下載") }
+    static func lunaLibraryFullMenuHint(_ n: Int) -> String { s("Import .sqlite… (max \(n), click ✕ to remove)", ko: "Import .sqlite… (max \(n), click ✕ to remove)", zh: "导入 .sqlite…（满 \(n) 个，点右侧 ✕ 可删）", tw: "匯入 .sqlite…（滿 \(n) 個，點右側 ✕ 可刪）") }
 
     static var hideMenuBarIconTitle: String { s("Hide the menu bar icon?", ko: "메뉴바 아이콘을 숨길까요?", zh: "隐藏菜单栏图标？", tw: "隱藏選單列圖示？") }
     static var hideMenuBarIconMessage: String { s("Your shortcuts keep working. To get back to Settings, open 预翻译 for Mac again from Finder or Spotlight.", ko: "번역 단축키는 계속 작동합니다. 설정으로 돌아오려면 Finder나 Spotlight에서 预翻译 for Mac를 다시 여세요.", zh: "翻译快捷键仍然可用。要返回设置，请从访达或聚焦搜索重新打开 预翻译 for Mac。", tw: "翻譯快捷鍵仍然可用。要返回設定，請從 Finder 或 Spotlight 重新開啟 预翻译 for Mac。") }
