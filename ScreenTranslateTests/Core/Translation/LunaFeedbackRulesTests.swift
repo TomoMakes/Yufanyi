@@ -110,7 +110,7 @@ import Testing
         let p = try provider()
         #expect(try translate(p, "TLI") == "")
         #expect(try translate(p, "IiI\n\n■II") == "")
-        // 台词下面带着模拟器的浮条：只留台词
+        // 台词下面带着窗口状态浮条：只留台词
         #expect(try translate(p, "「君が不安がっていたらその気持ちも観客にバレてしまうだろうから\nね」\n\n- pilinonr\n\nEDe ZQ 5I52 12") == "译17")
         // 有日文但库里没有：照旧标未命中
         #expect(try translate(p, "履歴ロード").hasPrefix(miss))
@@ -422,7 +422,7 @@ import Testing
         #expect(!p.isCompleteExactHit("すると、そう間を置かずに、後方から声が発せられ"))
     }
 
-    @Test func emulatorOverlayHUDTailStillMatchesUniquePrefix() throws {
+    @Test func statusOverlayHUDTailStillMatchesUniquePrefix() throws {
         let p = try provider([
             ("「いや、君が早計だったんですよ。もう少し落ち着いた行動をとってくれていれば......ご友人のためとはいえ、焦りすぎましたね」", "「不，是你操之过急了。要是你能冷静一点行动……就算是为了朋友，也太急躁了」"),
             ("「もっとも、僕には君にベッドを貸して自分はソファなどという殊勝さはないので、共寝いただくことになりますが」", "「不过我可没有把床让给你、自己睡沙发的高尚情操，只好请你同床共枕了」"),

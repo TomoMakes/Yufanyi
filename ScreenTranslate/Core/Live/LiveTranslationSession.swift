@@ -354,7 +354,7 @@ final class LiveTranslationSession {
         guard isRunning else { return }
         switch result {
         case .success(let translated):
-            // 预翻译返回空：画面上没有日文（只有符号的句子被读成字母、模拟器的浮条、菜单外的画面），
+            // 预翻译返回空：画面上没有日文（只有符号的句子被读成字母、窗口性能浮条、菜单外的画面），
             // 没东西可翻，不出字幕、不算未命中、不存。
             if translated.isEmpty, dependencies.translator is LunaPretranslationProvider {
                 if read.serial == readSerial { lastReadSettled = true }

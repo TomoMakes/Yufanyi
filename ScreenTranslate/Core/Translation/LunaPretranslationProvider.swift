@@ -61,7 +61,7 @@ final class LunaPretranslationProvider: TranslationProvider {
     /// here must not count towards the consecutive misses that reset the context.
     ///
     /// Returns "" when nothing matched and the text holds no Japanese at all (2026-11-14):
-    /// a symbol-only line read as letters (「！？」 → TLI), an emulator overlay, a desktop.
+    /// a symbol-only line read as letters (「！？」 → TLI), a status HUD overlay, a desktop.
     /// There is nothing to translate, so it is neither shown nor counted as a miss.
     func translate(text: String, lineAlternates: [String: [String]], isRescue: Bool = false) throws -> String {
         if rows == nil { try loadDatabase() }
@@ -421,7 +421,7 @@ final class LunaPretranslationProvider: TranslationProvider {
         if let hit = angleBracketMatch(text) { return hit }
         if let hit = tailMatch(text) { return hit }
         if let hit = lookAlikeMatch(text) { return hit }
-        if let hit = emulatorOverlayPrefixMatch(text) { return hit }
+        if let hit = statusOverlayPrefixMatch(text) { return hit }
         // A missing final quote is not permission to match an unrelated unquoted record.
         // Only restore one closing delimiter when the entire long body is an exact record.
         if !Self.balanced(text) {
@@ -1172,10 +1172,10 @@ final class LunaPretranslationProvider: TranslationProvider {
         return nil
     }
 
-    /// 2026-11-23 (sins of KALEIDO): Ryujinx/emulator floating HUD (`Docked V-Sync HV MVK FPS 60 FIFO 1%`)
+    /// 2026-11-23 (sins of KALEIDO): a floating performance/status HUD (`Docked V-Sync HV MVK FPS 60 FIFO 1%`)
     /// can overlap the bottom line of dialogue. Strip the HUD tail and accept a unique prefix match
     /// when the remaining dialogue is substantial (>= 15 Japanese letters).
-    private func emulatorOverlayPrefixMatch(_ text: String) -> String? {
+    private func statusOverlayPrefixMatch(_ text: String) -> String? {
         guard let rows else { return nil }
         let lower = text.lowercased()
         let hudTokens = ["docked", "v-sync", "fps", "fifo", "mvk", "handheld"]
